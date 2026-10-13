@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Low Poly Racer</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd3ff; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #fff; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  .hud { position: fixed; pointer-events: none; text-shadow: 0 2px 6px rgba(0,0,0,.6); font-weight: 700; }
+  #hudLeft { top: 14px; left: 16px; font-size: 18px; line-height: 1.5; }
+  #hudLeft .big { font-size: 40px; }
+  #hudRight { top: 14px; right: 16px; text-align: right; font-size: 15px; line-height: 1.5; pointer-events: auto; }
+  #roomBtn { cursor: pointer; background: rgba(0,0,0,.35); padding: 6px 10px; border-radius: 8px; display: none; }
+  #toast { bottom: 90px; left: 0; right: 0; text-align: center; font-size: 16px; }
+  #menu { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(20,30,50,.72); text-align: center; padding: 20px; }
+  #menu h1 { margin: 0; font-size: clamp(32px, 8vw, 64px); letter-spacing: 3px; }
+  #menu p { margin: 0; max-width: 460px; opacity: .85; }
+  #menu small { opacity: .7; }
+  button, input { font: inherit; border-radius: 10px; border: 0; padding: 12px 20px; }
+  button { background: #ff5a3c; color: #fff; font-weight: 700; cursor: pointer; }
+  button:hover { background: #ff7a5e; }
+  button:disabled { opacity: .5; cursor: default; }
+  input { text-transform: uppercase; text-align: center; width: 150px; letter-spacing: 3px; font-weight: 700; }
+  .row { display: flex; gap: 8px; }
+  #status { min-height: 22px; color: #ffd37a; }
+  .touch { position: fixed; bottom: 16px; left: 0; right: 0; justify-content: space-between; padding: 0 16px; display: none; pointer-events: none; }
+  .touch .grp { display: flex; gap: 12px; pointer-events: auto; }
+  .touch button { width: 78px; height: 78px; font-size: 26px; padding: 0; opacity: .8; user-select: none; -webkit-user-select: none; touch-action: none; }
+  @media (pointer: coarse) { .touch { display: flex; } }
+</style>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="hud" id="hudLeft">
+  <div><span class="big" id="speed">0</span> km/h</div>
+  <div id="lapInfo">Lap 1</div>
+  <div id="timeInfo">Last: -- &nbsp; Best: --</div>
+</div>
+<div class="hud" id="hudRight">
+  <div id="players">Solo</div>
+  <div id="roomBtn" title="Click to copy invite link"></div>
+</div>
+<div class="hud" id="toast"></div>
+
+<div class="touch">
+  <div class="grp"><button id="tLeft">◀</button><button id="tRight">▶</button></div>
+  <div class="grp"><button id="tBrake">■</button><button id="tGas">▲</button></div>
+</div>
+
+<div id="menu">
+  <h1>LOW POLY RACER</h1>
+  <p>Race friends right in your browser. Cars pass through each other, so nobody gets wrecked.</p>
+  <button id="solo">Drive solo</button>
+  <button id="host">Host a race</button>
+  <div class="row">
+    <input id="code" maxlength="5" placeholder="CODE" autocomplete="off">
+    <button id="join">Join</button>
+  </div>
+  <div id="status"></div>
+  <small>W / ↑ gas &nbsp;·&nbsp; S / ↓ brake &nbsp;·&nbsp; A D / ← → steer &nbsp;·&nbsp; R reset to track</small>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ---------- renderer / scene ---------- */
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9fd3ff);
+scene.fog = new THREE.Fog(0x9fd3ff, 120, 520);
+const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 1000);
+
+function resize() {
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x4a7a3a, 1.4));
+const sun = new THREE.DirectionalLight(0xfff2cc, 2.2);
+sun.position.set(100, 200, 50);
+scene.add(sun);
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(2400, 2400),
+  new THREE.MeshStandardMaterial({ color: 0x5a9e4b, flatShading: true })
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+/* ---------- track ---------- */
+const ROAD_W = 10;          // half width of the road
+const KERB_W = 1.2;
+const controlPts = [
+  [0, -160], [120, -150], [200, -80], [190, 20], [110, 60], [60, 130],
+  [-30, 170], [-130, 140], [-190, 60], [-170, -60], [-100, -120]
+].map(([x, z]) => new THREE.Vector3(x, 0, z));
+const curve = new THREE.CatmullRomCurve3(controlPts, true, 'centripetal');
+const N = 600;
+const center = curve.getSpacedPoints(N).slice(0, N);
+const tang = center.map((p, i) =>
+  center[(i + 1) % N].clone().sub(center[(i - 1 + N) % N]).setY(0).normalize());
+
+(function buildRoad() {
+  const pos = [], col = [];
+  const road1 = new THREE.Color(0x3a3a42), road2 = new THREE.Color(0x44444d);
+  const red = new THREE.Color(0xd8342c), white = new THREE.Color(0xf2f2f2);
+
+  function tri(a, b, c, color, y) {
+    for (const v of [a, b, c]) { pos.push(v[0], y, v[1]); col.push(color.r, color.g, color.b); }
+  }
+  function quad(a, b, c, d, color, y) { tri(a, b, c, color, y); tri(a, c, d, color, y); }
+  function side(i, s, w) {
+    const p = center[i % N], t = tang[i % N];
+    return [p.x + (-t.z) * s * w, p.z + t.x * s * w];
+  }
+
+  for (let i = 0; i < N; i++) {
+    const R0 = side(i, 1, ROAD_W), L0 = side(i, -1, ROAD_W);
+    const R1 = side(i + 1, 1, ROAD_W), L1 = side(i + 1, -1, ROAD_W);
+    quad(R0, R1, L1, L0, Math.floor(i / 3) % 2 ? road1 : road2, 0.05);
+
+    const kc = Math.floor(i / 2) % 2 ? red : white;
+    for (const s of [1, -1]) {
+      const in0 = side(i, s, ROAD_W), out0 = side(i, s, ROAD_W + KERB_W);
+      const in1 = side(i + 1, s, ROAD_W), out1 = side(i + 1, s, ROAD_W + KERB_W);
+      quad(in0, out0, out1, in1, kc, 0.08);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.computeVertexNormals();
+  scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    vertexColors: true, flatShading: true, side: THREE.DoubleSide
+  })));
+
+  // start / finish line
+  const cv = document.createElement('canvas'); cv.width = 16; cv.height = 2;
+  const cx = cv.getContext('2d');
+  for (let x = 0; x < 16; x++) for (let y = 0; y < 2; y++) {
+    cx.fillStyle = (x + y) % 2 ? '#111' : '#fff'; cx.fillRect(x, y, 1, 1);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+  const lineGeo = new THREE.PlaneGeometry(ROAD_W * 2, 3);
+  lineGeo.rotateX(-Math.PI / 2);
+  const line = new THREE.Mesh(lineGeo, new THREE.MeshBasicMaterial({ map: tex }));
+  line.position.set(center[0].x, 0.1, center[0].z);
+  line.rotation.y = Math.atan2(tang[0].x, tang[0].z);
+  scene.add(line);
+})();
+
+/* trees (seeded so every player sees the same ones) */
+(function buildTrees() {
+  let seed = 1234;
+  const rnd = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const spots = [];
+  for (let k = 0; k < 600 && spots.length < 220; k++) {
+    const x = (rnd() - 0.5) * 760, z = (rnd() - 0.5) * 760;
+    let min = 1e9;
+    for (let i = 0; i < N; i += 2) {
+      const dx = center[i].x - x, dz = center[i].z - z;
+      const d = dx * dx + dz * dz; if (d < min) min = d;
+    }
+    if (Math.sqrt(min) > ROAD_W + 14) spots.push([x, z, 0.8 + rnd() * 0.9]);
+  }
+  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.4, 0.55, 2, 5),
+    new THREE.MeshStandardMaterial({ color: 0x6b4a2b, flatShading: true }), spots.length);
+  const tops = new THREE.InstancedMesh(new THREE.ConeGeometry(2.6, 7, 5),
+    new THREE.MeshStandardMaterial({ color: 0x2f7a3a, flatShading: true }), spots.length);
+  const m = new THREE.Matrix4();
+  spots.forEach(([x, z, s], i) => {
+    m.makeScale(s, s, s).setPosition(x, 1 * s, z); trunks.setMatrixAt(i, m);
+    m.makeScale(s, s, s).setPosition(x, 5.5 * s, z); tops.setMatrixAt(i, m);
+  });
+  scene.add(trunks, tops);
+})();
+
+function nearest(x, z) {
+  let best = 1e18, bi = 0;
+  for (let i = 0; i < N; i++) {
+    const dx = center[i].x - x, dz = center[i].z - z;
+    const d = dx * dx + dz * dz;
+    if (d < best) { best = d; bi = i; }
+  }
+  return { i: bi, d: Math.sqrt(best) };
+}
+
+/* ---------- cars ---------- */
+function makeCar(hue) {
+  const g = new THREE.Group();
+  const mat = c => new THREE.MeshStandardMaterial({ color: c, flatShading: true });
+  const bodyCol = new THREE.Color().setHSL(hue, 0.75, 0.5);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2, 0.6, 4.2), mat(bodyCol));
+  body.position.y = 0.75; g.add(body);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.55, 1.9), mat(0x223344));
+  cab.position.set(0, 1.3, -0.3); g.add(cab);
+  const spoiler = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 0.5), mat(bodyCol));
+  spoiler.position.set(0, 1.5, -1.9); g.add(spoiler);
+  const wgeo = new THREE.CylinderGeometry(0.45, 0.45, 0.4, 8); wgeo.rotateZ(Math.PI / 2);
+  for (const [x, z] of [[-1.1, 1.3], [1.1, 1.3], [-1.1, -1.3], [1.1, -1.3]]) {
+    const w = new THREE.Mesh(wgeo, mat(0x151515)); w.position.set(x, 0.45, z); g.add(w);
+  }
+  for (const x of [-0.6, 0.6]) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.22, 0.06),
+      new THREE.MeshStandardMaterial({ color: 0xffee99, emissive: 0xffee99, flatShading: true }));
+    l.position.set(x, 0.8, 2.12); g.add(l);
+  }
+  return g;
+}
+
+const me = { x: 0, z: 0, th: 0, speed: 0, hue: Math.random() };
+const myCar = makeCar(me.hue);
+scene.add(myCar);
+
+function spawn() {
+  const i = N - 6;
+  const p = center[i], t = tang[i];
+  const off = (Math.random() - 0.5) * 12;
+  me.x = p.x + (-t.z) * off; me.z = p.z + t.x * off;
+  me.th = Math.atan2(t.x, t.z); me.speed = 0;
+}
+function resetCar() {
+  const n = nearest(me.x, me.z), t = tang[n.i];
+  me.x = center[n.i].x; me.z = center[n.i].z;
+  me.th = Math.atan2(t.x, t.z); me.speed = 0;
+}
+spawn();
+
+/* ---------- input ---------- */
+const keys = {}, touch = {};
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  keys[e.code] = true;
+  if (e.code === 'KeyR') resetCar();
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+for (const [id, name] of [['tLeft', 'left'], ['tRight', 'right'], ['tGas', 'gas'], ['tBrake', 'brake']]) {
+  const el = document.getElementById(id);
+  const on = e => { e.preventDefault(); touch[name] = true; };
+  const off = e => { e.preventDefault(); touch[name] = false; };
+  el.addEventListener('pointerdown', on);
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => el.addEventListener(ev, off));
+}
+
+/* ---------- driving + laps ---------- */
+let lapsDone = 0, half = false, lastIdx = N - 6, lapStart = performance.now();
+let lastLap = null, bestLap = null;
+let started = false;
+const fmt = t => t == null ? '--' : t.toFixed(2) + 's';
+
+function update(dt) {
+  const up = keys.ArrowUp || keys.KeyW || touch.gas;
+  const down = keys.ArrowDown || keys.KeyS || touch.brake;
+  const left = keys.ArrowLeft || keys.KeyA || touch.left;
+  const right = keys.ArrowRight || keys.KeyD || touch.right;
+
+  const near = nearest(me.x, me.z);
+  const off = near.d > ROAD_W + KERB_W;
+  const maxF = off ? 20 : 60;
+
+  if (up) me.speed += 30 * dt;
+  else if (down) me.speed -= (me.speed > 0 ? 60 : 20) * dt;
+  else me.speed -= Math.sign(me.speed) * Math.min(Math.abs(me.speed), 8 * dt);
+  me.speed = Math.max(me.speed, -15);
+  if (me.speed > maxF) me.speed = off ? me.speed - (me.speed - maxF) * Math.min(1, 3 * dt) : maxF;
+
+  const steer = (left ? 1 : 0) - (right ? 1 : 0);
+  const grip = Math.min(1, Math.abs(me.speed) / 8);
+  me.th += steer * 2.0 * grip * Math.sign(me.speed) / (1 + Math.abs(me.speed) / 50) * dt;
+  me.x += Math.sin(me.th) * me.speed * dt;
+  me.z += Math.cos(me.th) * me.speed * dt;
+
+  // lap counting
+  const idx = near.i;
+  if (idx >= N * 0.4 && idx <= N * 0.6) half = true;
+  if (lastIdx > N * 0.8 && idx < N * 0.2) {
+    if (half) {
+      const now = performance.now();
+      lastLap = (now - lapStart) / 1000;
+      bestLap = bestLap == null ? lastLap : Math.min(bestLap, lastLap);
+      lapStart = now; lapsDone++;
+    }
+    half = false;
+  }
+  lastIdx = idx;
+
+  myCar.position.set(me.x, 0, me.z);
+  myCar.rotation.y = me.th;
+
+  document.getElementById('speed').textContent = Math.round(Math.abs(me.speed) * 2);
+  document.getElementById('lapInfo').textContent = 'Lap ' + (lapsDone + 1);
+  document.getElementById('timeInfo').innerHTML = 'Last: ' + fmt(lastLap) + ' &nbsp; Best: ' + fmt(bestLap);
+}
+
+/* ---------- multiplayer (PeerJS, peer-to-peer, star topology around the host) ---------- */
+const net = { peer: null, host: false, id: null, conns: {}, states: {}, snapshot: {}, hostConn: null, code: null };
+const remotes = {};
+const $ = id => document.getElementById(id);
+const menu = $('menu'), statusEl = $('status');
+const setStatus = msg => { statusEl.textContent = msg; };
+function toast(msg, ms = 3000) { $('toast').textContent = msg; setTimeout(() => { if ($('toast').textContent === msg) $('toast').textContent = ''; }, ms); }
+
+function mine() {
+  return { x: +me.x.toFixed(2), z: +me.z.toFixed(2), r: +me.th.toFixed(3), v: +me.speed.toFixed(1), h: me.hue };
+}
+function startGame() {
+  started = true; menu.style.display = 'none';
+  lapStart = performance.now();
+}
+function showRoom(code) {
+  net.code = code;
+  const link = location.origin + location.pathname + '?room=' + code;
+  const b = $('roomBtn');
+  b.style.display = 'block';
+  b.textContent = 'Room ' + code + ' (tap to copy link)';
+  b.onclick = () => {
+    (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
+      .then(() => toast('Invite link copied'))
+      .catch(() => window.prompt('Copy this invite link:', link));
+  };
+}
+function genCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let c = ''; for (let i = 0; i < 5; i++) c += chars[Math.floor(Math.random() * chars.length)];
+  return c;
+}
+
+function startHost() {
+  if (typeof Peer === 'undefined') return setStatus('Multiplayer library failed to load. Check your connection.');
+  setStatus('Creating room...');
+  const code = genCode();
+  const peer = new Peer('lpr-' + code);
+  net.peer = peer; net.host = true;
+  peer.on('open', id => {
+    net.id = id; showRoom(code); startGame();
+    setInterval(() => {
+      const snap = {}; snap[net.id] = mine(); Object.assign(snap, net.states);
+      for (const c of Object.values(net.conns)) if (c.open) c.send({ t: 'w', p: snap });
+    }, 50);
+  });
+  peer.on('error', e => {
+    if (e.type === 'unavailable-id') { peer.destroy(); startHost(); }
+    else { setStatus('Network error: ' + e.type); toast('Network error: ' + e.type); }
+  });
+  peer.on('connection', conn => {
+    conn.on('open', () => { net.conns[conn.peer] = conn; toast('A player joined'); });
+    conn.on('data', d => { if (d && d.t === 's') net.states[conn.peer] = d.s; });
+    conn.on('close', () => { delete net.conns[conn.peer]; delete net.states[conn.peer]; toast('A player left'); });
+  });
+}
+
+function joinRoom(raw) {
+  const code = raw.trim().toUpperCase();
+  if (code.length !== 5) return setStatus('Enter the 5-character room code.');
+  if (typeof Peer === 'undefined') return setStatus('Multiplayer library failed to load. Check your connection.');
+  setStatus('Connecting...');
+  const peer = new Peer();
+  net.peer = peer; net.host = false;
+  const timer = setTimeout(() => { setStatus('Could not connect. Check the code and try again.'); peer.destroy(); }, 12000);
+  peer.on('open', id => {
+    net.id = id;
+    const conn = peer.connect('lpr-' + code);
+    net.hostConn = conn;
+    conn.on('open', () => {
+      clearTimeout(timer); showRoom(code); startGame();
+      setInterval(() => { if (conn.open) conn.send({ t: 's', s: mine() }); }, 50);
+    });
+    conn.on('data', d => { if (d && d.t === 'w') net.snapshot = d.p; });
+    conn.on('close', () => { net.snapshot = {}; toast('Disconnected from the host', 6000); });
+  });
+  peer.on('error', e => {
+    clearTimeout(timer);
+    const msg = e.type === 'peer-unavailable' ? 'Room not found. Check the code.' : 'Network error: ' + e.type;
+    setStatus(msg); toast(msg);
+  });
+}
+
+function syncRemotes(dt) {
+  const src = net.host ? net.states : net.snapshot;
+  const k = 1 - Math.exp(-12 * dt);
+  const seen = {};
+  for (const id in src) {
+    if (id === net.id) continue;
+    const s = src[id]; seen[id] = true;
+    let r = remotes[id];
+    if (!r) {
+      r = remotes[id] = { mesh: makeCar(s.h) };
+      r.mesh.position.set(s.x, 0, s.z); r.mesh.rotation.y = s.r;
+      scene.add(r.mesh);
+    }
+    r.mesh.position.x += (s.x - r.mesh.position.x) * k;
+    r.mesh.position.z += (s.z - r.mesh.position.z) * k;
+    let d = s.r - r.mesh.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
+    r.mesh.rotation.y += d * k;
+  }
+  for (const id in remotes) if (!seen[id]) { scene.remove(remotes[id].mesh); delete remotes[id]; }
+  const n = Object.keys(remotes).length + 1;
+  $('players').textContent = net.peer ? n + (n === 1 ? ' player' : ' players') : 'Solo';
+}
+
+/* ---------- menu wiring ---------- */
+$('solo').onclick = () => startGame();
+$('host').onclick = () => startHost();
+$('join').onclick = () => joinRoom($('code').value);
+$('code').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('code').value); });
+const roomParam = new URLSearchParams(location.search).get('room');
+if (roomParam) $('code').value = roomParam.toUpperCase().slice(0, 5);
+
+/* ---------- main loop ---------- */
+const clock = new THREE.Clock();
+const camPos = new THREE.Vector3();
+camPos.set(me.x - Math.sin(me.th) * 12, 6, me.z - Math.cos(me.th) * 12);
+function loop() {
+  requestAnimationFrame(loop);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  if (started) update(dt);
+  syncRemotes(dt);
+
+  const fx = Math.sin(me.th), fz = Math.cos(me.th);
+  const want = new THREE.Vector3(me.x - fx * 12, 6, me.z - fz * 12);
+  camPos.lerp(want, 1 - Math.exp(-6 * dt));
+  camera.position.copy(camPos);
+  camera.lookAt(me.x + fx * 6, 1.5, me.z + fz * 6);
+  renderer.render(scene, camera);
+}
+loop();
+</script>
+</body>
+</html>
