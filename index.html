@@ -36,7 +36,7 @@
   button:hover { background: #ff7a5e; }
   button:disabled { opacity: .5; cursor: default; }
   input { text-transform: uppercase; text-align: center; width: 150px; letter-spacing: 3px; font-weight: 700; }
-  .row { display: flex; gap: 8px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
   #status { min-height: 22px; color: #ffd37a; }
   .touch { position: fixed; bottom: 16px; left: 0; right: 0; justify-content: space-between; padding: 0 16px; display: none; pointer-events: none; }
   .touch .grp { display: flex; gap: 12px; pointer-events: auto; }
@@ -144,17 +144,24 @@ const TRACKS = [
   [-135, 80], [-145, 45], [-125, 15], [-90, 2]                           // final corner
 ] },
   { name: 'Mountain Loop', ground: 0x8c7b47, sky: 0xe8c9a0, pts: [   // tight and twisty, about 1.1 km
-    [-60, 0], [50, 0], [140, 2], [205, -20], [240, -70], [235, -125], [200, -165], [150, -175], [110, -150],
-    [85, -110], [40, -95], [-5, -115], [-45, -160], [-100, -175], [-150, -150], [-175, -100], [-165, -50], [-120, -15]] },
+    [-60, 0, 0], [50, 0, 0], [140, 2, 2], [205, -20, 6], [240, -70, 11], [235, -125, 15], [200, -165, 17], [150, -175, 15],
+    [110, -150, 10], [85, -110, 5], [40, -95, 2], [-5, -115, 4], [-45, -160, 8], [-100, -175, 9], [-150, -150, 6],
+    [-175, -100, 3], [-165, -50, 1], [-120, -15, 0]] },   // [x, z, height]
   { name: 'Coastal Sprint', ground: 0xc9b97a, sky: 0x8fd0ff, pts: [   // fast and flowing, about 1.4 km
-    [-100, 0], [20, 0], [140, 0], [250, -5], [320, 25], [350, 85], [340, 150], [300, 195], [240, 215], [185, 200],
-    [150, 160], [120, 115], [75, 100], [20, 115], [-30, 150], [-85, 165], [-150, 150], [-185, 105], [-190, 45], [-160, 10]] }
+    [-100, 0, 0], [20, 0, 0], [140, 0, 1], [250, -5, 3], [320, 25, 5], [350, 85, 6], [340, 150, 4], [300, 195, 2],
+    [240, 215, 0], [185, 200, 0], [150, 160, 2], [120, 115, 5], [75, 100, 7], [20, 115, 6], [-30, 150, 3],
+    [-85, 165, 1], [-150, 150, 0], [-185, 105, 0], [-190, 45, 0], [-160, 10, 0]] },
+  { name: 'Skyway', ground: 0x7a8a7a, sky: 0xb8d8f0, pts: [   // figure of eight: climb up and over a bridge, then pass under it
+    [-60, 0, 0], [60, 0, 0], [120, 0, 0], [190, 0, 0], [245, 25, 0], [270, 80, 1], [255, 140, 3], [205, 185, 6],
+    [140, 195, 9], [75, 185, 11.5], [25, 160, 12], [0, 120, 12], [0, 70, 12], [0, 35, 12], [0, 0, 12], [0, -35, 12],
+    [0, -70, 12], [0, -120, 10], [-30, -170, 6], [-90, -195, 2.5], [-160, -175, 0], [-195, -120, 0], [-190, -60, 0],
+    [-160, -20, 0], [-120, 0, 0]] }
 ];
 const TRACK_ID = (() => { const t = parseInt(new URLSearchParams(location.search).get('track'), 10); return t >= 0 && t < TRACKS.length ? t : 0; })();
 const TRACK_LETTERS = 'ABCDEFGH'.slice(0, TRACKS.length);   // first letter of a room code says which track it uses
 ground.material.color.setHex(TRACKS[TRACK_ID].ground);
 scene.background.setHex(TRACKS[TRACK_ID].sky); scene.fog.color.setHex(TRACKS[TRACK_ID].sky);
-const controlPts = TRACKS[TRACK_ID].pts.map(([x, z]) => new THREE.Vector3(x, 0, z));
+const controlPts = TRACKS[TRACK_ID].pts.map(([x, z, y = 0]) => new THREE.Vector3(x, y, z));
 const curve = new THREE.CatmullRomCurve3(controlPts, true, 'centripetal');
 const N = 800;
 const SPAWN_IDX = N - 10;
@@ -168,12 +175,12 @@ const tang = center.map((p, i) =>
   const red = new THREE.Color(0xd8342c), white = new THREE.Color(0xf2f2f2);
 
   function tri(a, b, c, color, y) {
-    for (const v of [a, b, c]) { pos.push(v[0], y, v[1]); col.push(color.r, color.g, color.b); }
+    for (const v of [a, b, c]) { pos.push(v[0], y + v[2], v[1]); col.push(color.r, color.g, color.b); }
   }
   function quad(a, b, c, d, color, y) { tri(a, b, c, color, y); tri(a, c, d, color, y); }
   function side(i, s, w) {
     const p = center[i % N], t = tang[i % N];
-    return [p.x + (-t.z) * s * w, p.z + t.x * s * w];
+    return [p.x + (-t.z) * s * w, p.z + t.x * s * w, p.y];
   }
 
   for (let i = 0; i < N; i++) {
@@ -210,7 +217,7 @@ const tang = center.map((p, i) =>
   const lineGeo = new THREE.PlaneGeometry(ROAD_W * 2, 3);
   lineGeo.rotateX(-Math.PI / 2);
   const line = new THREE.Mesh(lineGeo, new THREE.MeshBasicMaterial({ map: tex }));
-  line.position.set(center[0].x, 0.1, center[0].z);
+  line.position.set(center[0].x, center[0].y + 0.1, center[0].z);
   line.rotation.y = Math.atan2(tang[0].x, tang[0].z);
   scene.add(line);
 })();
@@ -250,7 +257,7 @@ const tang = center.map((p, i) =>
   const H = 1.4, T = 0.8;
   function at(i, s, w, y) {
     const p = center[i % N], t = tang[i % N];
-    return [p.x + (-t.z) * s * w, y, p.z + t.x * s * w];
+    return [p.x + (-t.z) * s * w, y + p.y, p.z + t.x * s * w];
   }
   function quad(a, b, c, d, color) {
     for (const v of [a, b, c, a, c, d]) { pos.push(v[0], v[1], v[2]); col.push(color.r, color.g, color.b); }
@@ -271,6 +278,43 @@ const tang = center.map((p, i) =>
   })));
 })();
 
+/* raised sections get a concrete deck underneath and pillars (skipped where another road passes below) */
+(function buildBridges() {
+  const pos = [], col = [];
+  const conc = new THREE.Color(0x8f939c), under = new THREE.Color(0x6f737c);
+  const W2 = ROAD_W + KERB_W;
+  const at = (i, s, y) => { const p = center[i % N], t = tang[i % N]; return [p.x + (-t.z) * s * W2, p.y + y, p.z + t.x * s * W2]; };
+  const quad = (a, b, c, d, color) => { for (const v of [a, b, c, a, c, d]) { pos.push(v[0], v[1], v[2]); col.push(color.r, color.g, color.b); } };
+  for (let i = 0; i < N; i++) {
+    if (Math.min(center[i].y, center[(i + 1) % N].y) < 1.0) continue;
+    quad(at(i, 1, -0.9), at(i + 1, 1, -0.9), at(i + 1, -1, -0.9), at(i, -1, -0.9), under);
+    for (const s of [1, -1]) quad(at(i, s, 0.05), at(i + 1, s, 0.05), at(i + 1, s, -0.9), at(i, s, -0.9), conc);
+  }
+  if (pos.length) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.computeVertexNormals();
+    scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide })));
+  }
+  const pm = new THREE.MeshStandardMaterial({ color: 0x9aa0aa, flatShading: true });
+  for (let i = 0; i < N; i += 10) {
+    const c = center[i];
+    if (c.y < 3) continue;
+    let blocked = false;
+    for (let j = 0; j < N; j += 2) {
+      const o = center[j];
+      if (o.y < c.y - 5 && Math.hypot(o.x - c.x, o.z - c.z) < WALL_D + 8) { blocked = true; break; }
+    }
+    if (blocked) continue;
+    const h = c.y - 0.9;
+    const pil = new THREE.Mesh(new THREE.BoxGeometry(5, h, 2.4), pm);
+    pil.position.set(c.x, h / 2, c.z);
+    pil.rotation.y = Math.atan2(tang[i].x, tang[i].z);
+    scene.add(pil);
+  }
+})();
+
 /* start gantry and grandstand */
 (function buildStart() {
   const mat = c => new THREE.MeshStandardMaterial({ color: c, flatShading: true });
@@ -285,7 +329,7 @@ const tang = center.map((p, i) =>
   beam.position.set(0, 10, 0); gantry.add(beam);
   const stripe = new THREE.Mesh(new THREE.BoxGeometry(w * 2 - 4, 0.6, 1.5), new THREE.MeshBasicMaterial({ color: 0xffffff }));
   stripe.position.set(0, 10, 0); gantry.add(stripe);
-  gantry.position.set(center[0].x, 0, center[0].z);
+  gantry.position.set(center[0].x, center[0].y, center[0].z);
   gantry.rotation.y = Math.atan2(tang[0].x, tang[0].z);
   scene.add(gantry);
 
@@ -313,7 +357,7 @@ const tang = center.map((p, i) =>
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.6, 14, 0.6), mat(0x30343c));
     post.position.set(13.3, 7, z); stand.add(post);
   }
-  stand.position.set(sp.x + st.z * (WALL_D + 8), 0, sp.z - st.x * (WALL_D + 8));
+  stand.position.set(sp.x + st.z * (WALL_D + 8), sp.y, sp.z - st.x * (WALL_D + 8));
   stand.rotation.y = Math.atan2(st.x, st.z);
   scene.add(stand);
 })();
@@ -333,14 +377,16 @@ const tang = center.map((p, i) =>
   }
 })();
 
-function nearest(x, z) {
-  let best = 1e18, bi = 0;
+function nearest(x, z, y) {          // y (optional): prefer the road at the car's height
+  let best = 1e18, bi = 0, flatBest = 0;
   for (let i = 0; i < N; i++) {
     const dx = center[i].x - x, dz = center[i].z - z;
-    const d = dx * dx + dz * dz;
-    if (d < best) { best = d; bi = i; }
+    const flat = dx * dx + dz * dz;
+    let d = flat;
+    if (y !== undefined) { const dy = (center[i].y - y) * 2.5; d += dy * dy; }
+    if (d < best) { best = d; bi = i; flatBest = flat; }
   }
-  return { i: bi, d: Math.sqrt(best) };
+  return { i: bi, d: Math.sqrt(flatBest) };
 }
 
 /* ---------- cars ---------- */
@@ -433,6 +479,7 @@ function makeCar(hue) {
   wheel(0.5, 0.5, -1.17, 1.45, true);  wheel(0.5, 0.5, 1.17, 1.45, true);
   wheel(0.54, 0.72, -1.2, -1.35, false); wheel(0.54, 0.72, 1.2, -1.35, false);
 
+  g.rotation.order = 'YXZ';             // yaw first, then pitch with the slope
   g.userData = { tilt, wheels, fw, roll: 0, pitch: 0 };
   return g;
 }
@@ -454,7 +501,7 @@ const HUES = [0.0, 0.07, 0.14, 0.33, 0.5, 0.6, 0.75, 0.9];
 let prefs = {};
 try { prefs = JSON.parse(localStorage.getItem('lpr') || '{}') || {}; } catch (e) { prefs = {}; }
 function savePrefs() { try { localStorage.setItem('lpr', JSON.stringify({ name: me.name, hue: me.hue })); } catch (e) {} }
-const me = { x: 0, z: 0, th: 0, speed: 0, spd: 0, slip: 0, prog: 0, vx: 0, vz: 0, steer: 0,
+const me = { x: 0, y: 0, z: 0, th: 0, pit: 0, speed: 0, spd: 0, slip: 0, prog: 0, vx: 0, vz: 0, steer: 0,
   hue: typeof prefs.hue === 'number' ? prefs.hue : HUES[Math.floor(Math.random() * HUES.length)],
   name: String(prefs.name || ('Player' + Math.floor(Math.random() * 90 + 10))).slice(0, 12) };
 let myCar = makeCar(me.hue);
@@ -464,12 +511,12 @@ function spawn() {
   const i = SPAWN_IDX;
   const p = center[i], t = tang[i];
   const off = (Math.random() - 0.5) * 12;
-  me.x = p.x + (-t.z) * off; me.z = p.z + t.x * off;
+  me.x = p.x + (-t.z) * off; me.z = p.z + t.x * off; me.y = p.y;
   me.th = Math.atan2(t.x, t.z); me.speed = 0; me.vx = 0; me.vz = 0; me.steer = 0;
 }
 function resetCar() {
-  const n = nearest(me.x, me.z), t = tang[n.i];
-  me.x = center[n.i].x; me.z = center[n.i].z;
+  const n = nearest(me.x, me.z, me.y), t = tang[n.i];
+  me.x = center[n.i].x; me.z = center[n.i].z; me.y = center[n.i].y;
   me.th = Math.atan2(t.x, t.z); me.speed = 0; me.vx = 0; me.vz = 0; me.steer = 0;
 }
 spawn();
@@ -509,7 +556,7 @@ function addMarks(fx, fz, lx, lz, yaw) {
   if (Math.hypot(me.x - lastMX, me.z - lastMZ) < 1.0) return;
   lastMX = me.x; lastMZ = me.z;
   for (const sx of [-1, 1]) {
-    markDummy.position.set(me.x - fx * 1.35 + lx * 1.2 * sx, 0.12, me.z - fz * 1.35 + lz * 1.2 * sx);
+    markDummy.position.set(me.x - fx * 1.35 + lx * 1.2 * sx, me.y + 0.12, me.z - fz * 1.35 + lz * 1.2 * sx);
     markDummy.rotation.set(-Math.PI / 2, yaw, 0);
     markDummy.updateMatrix();
     markMesh.setMatrixAt(markI, markDummy.matrix);
@@ -587,8 +634,13 @@ function update(dt) {
   const right = !frozen && (keys.ArrowRight || keys.KeyD || touch.right);
   const hand = !frozen && keys.Space;
 
-  const near = nearest(me.x, me.z);
+  const near = nearest(me.x, me.z, me.y);
   const off = near.d > ROAD_W + KERB_W;
+  me.y += (center[near.i].y - me.y) * Math.min(1, 14 * dt);          // stick to the road surface
+  const iA = (near.i + 8) % N, iB = (near.i - 8 + N) % N;
+  const run = Math.hypot(center[iA].x - center[iB].x, center[iA].z - center[iB].z) || 1;
+  const slope = (center[iA].y - center[iB].y) / run;                   // > 0 means climbing in the track direction
+  const slopeAlong = slope * (Math.sin(me.th) * tang[near.i].x + Math.cos(me.th) * tang[near.i].z);
   const cap = off ? VMAX * 0.42 : VMAX;
 
   // steering eases in and out instead of snapping
@@ -612,6 +664,7 @@ function update(dt) {
   } else if (up) vf += 38 * Math.max(0, 1 - Math.pow(Math.max(vf, 0) / VMAX, 1.4)) * dt;
   else vf -= Math.sign(vf) * Math.min(Math.abs(vf), (5 + 0.0012 * vf * vf) * dt);
   if (hand) vf -= Math.sign(vf) * Math.min(Math.abs(vf), 9 * dt);
+  vf -= 28 * slopeAlong * dt;                          // uphill slows the car, downhill speeds it up
   vf = Math.max(vf, -18);
   if (vf > cap) vf -= (vf - cap) * Math.min(1, 2.5 * dt);
 
@@ -646,7 +699,7 @@ function update(dt) {
   }
 
   // barriers: keep the car on the circuit; it slides along the wall and loses speed
-  const hit = nearest(me.x, me.z), lim = WALL_D - 1.3;
+  const hit = nearest(me.x, me.z, me.y), lim = WALL_D - 1.3;
   if (hit.d > lim) {
     const c = center[hit.i], dx = me.x - c.x, dz = me.z - c.z, d = Math.hypot(dx, dz) || 1;
     const nx = dx / d, nz = dz / d;
@@ -677,8 +730,9 @@ function update(dt) {
   }
   lastIdx = idx;
 
-  myCar.position.set(me.x, 0, me.z);
-  myCar.rotation.y = me.th;
+  myCar.position.set(me.x, me.y, me.z);
+  me.pit += (-Math.atan(slopeAlong) - me.pit) * Math.min(1, 10 * dt);
+  myCar.rotation.set(me.pit, me.th, 0);
   animateCar(myCar, dt, me.steer, me.speed, braking, !!up && !down);
 
   document.getElementById('speed').textContent = Math.round(me.spd * 2);
@@ -696,7 +750,7 @@ const setStatus = msg => { statusEl.textContent = msg; };
 function toast(msg, ms = 3000) { $('toast').textContent = msg; setTimeout(() => { if ($('toast').textContent === msg) $('toast').textContent = ''; }, ms); }
 
 function mine() {
-  return { x: +me.x.toFixed(2), z: +me.z.toFixed(2), r: +me.th.toFixed(3), v: +me.speed.toFixed(1), h: me.hue,
+  return { x: +me.x.toFixed(2), y: +me.y.toFixed(2), z: +me.z.toFixed(2), r: +me.th.toFixed(3), v: +me.speed.toFixed(1), h: me.hue,
     n: me.name, p: +me.prog.toFixed(3), f: race.finish };
 }
 function startGame() {
@@ -787,7 +841,7 @@ function syncRemotes(dt) {
     let r = remotes[id];
     if (!r) {
       r = remotes[id] = { mesh: makeCar(s.h), hue: s.h };
-      r.mesh.position.set(s.x, 0, s.z); r.mesh.rotation.y = s.r;
+      r.mesh.position.set(s.x, s.y || 0, s.z); r.mesh.rotation.y = s.r;
       scene.add(r.mesh);
     }
     const nm = String(s.n || 'Player').slice(0, 12);
@@ -797,6 +851,7 @@ function syncRemotes(dt) {
     }
     r.mesh.position.x += (s.x - r.mesh.position.x) * k;
     r.mesh.position.z += (s.z - r.mesh.position.z) * k;
+    r.mesh.position.y += ((s.y || 0) - r.mesh.position.y) * k;
     let d = s.r - r.mesh.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
     r.mesh.rotation.y += d * k;
     animateCar(r.mesh, dt, 0, s.v || 0, false, false);
@@ -830,11 +885,11 @@ function gridSlot(slot) {
   const row = Math.floor(slot / 2), col = slot % 2;
   const i = ((N - 12 - row * 9) % N + N) % N;
   const p = center[i], t = tang[i], off = col ? 3.5 : -3.5;
-  return { x: p.x + (-t.z) * off, z: p.z + t.x * off, th: Math.atan2(t.x, t.z), i };
+  return { x: p.x + (-t.z) * off, y: p.y, z: p.z + t.x * off, th: Math.atan2(t.x, t.z), i };
 }
 function startRace(ids) {
   const g = gridSlot(Math.max(0, ids.indexOf(net.id)));
-  me.x = g.x; me.z = g.z; me.th = g.th;
+  me.x = g.x; me.y = g.y; me.z = g.z; me.th = g.th;
   me.vx = 0; me.vz = 0; me.speed = 0; me.spd = 0; me.steer = 0; me.slip = 0;
   lapsDone = 0; half = false; lastIdx = g.i; lastLap = null; bestLap = null;
   race.state = 'countdown'; race.t0 = performance.now(); race.finish = null;
@@ -905,7 +960,7 @@ function setHue(h) {
   me.hue = h; savePrefs();
   scene.remove(myCar);
   myCar = makeCar(h);
-  myCar.position.set(me.x, 0, me.z); myCar.rotation.y = me.th;
+  myCar.position.set(me.x, me.y, me.z); myCar.rotation.y = me.th;
   scene.add(myCar);
   swEls.forEach((b, i) => b.className = 'sw' + (HUES[i] === h ? ' on' : ''));
 }
@@ -1020,12 +1075,12 @@ function loop() {
 
   const fx = Math.sin(camTh), fz = Math.cos(camTh);
   const dist = 10.5 + 4.5 * sf, height = 4.6 + 1.2 * sf;
-  const want = new THREE.Vector3(me.x - fx * dist, height, me.z - fz * dist);
+  const want = new THREE.Vector3(me.x - fx * dist, me.y + height, me.z - fz * dist);
   camPos.lerp(want, 1 - Math.exp(-8 * dt));
   camera.position.copy(camPos);
   const shake = Math.max(0, sf - 0.75) * 0.25;
   if (shake) camera.position.add(new THREE.Vector3((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake));
-  camera.lookAt(me.x + fx * 6, 1.4, me.z + fz * 6);
+  camera.lookAt(me.x + fx * 6, me.y + 1.4, me.z + fz * 6);
 
   const fov = 66 + 26 * sf * sf;                       // widens with speed, which is most of what makes it feel fast
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * (1 - Math.exp(-6 * dt)); camera.updateProjectionMatrix(); }

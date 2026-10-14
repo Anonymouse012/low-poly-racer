@@ -19,9 +19,11 @@ On phones and tablets, on-screen buttons appear.
 
 ## Tracks
 
-Three tracks, picked from the menu: **Grand Circuit** (1.5 km, the original), **Mountain Loop** (tight and twisty, autumn colours) and **Coastal Sprint** (fast and flowing, sandy). The page reloads when you pick one. In multiplayer the first letter of the room code says which track it uses (A, B or C), so joining a room loads the right track automatically.
+Four tracks, picked from the menu: **Grand Circuit** (1.5 km, flat, the original), **Mountain Loop** (tight and twisty, climbs up to 17 units, autumn colours), **Coastal Sprint** (fast and flowing with gentle hills, sandy) and **Skyway** (a figure of eight: you climb up and over a bridge, then pass underneath it). The page reloads when you pick one. In multiplayer the first letter of the room code says which track it uses (A, B, C or D), so joining a room loads the right track automatically.
 
-To add a track, add an entry to the `TRACKS` list in `index.html`: a name, ground and sky colours, and a list of `[x, z]` points. Keep the points on a closed loop, with a straight start section, corners no tighter than about 30 units, and at least 40 units between parts of the track.
+Raised road gets a concrete deck and pillars. Going uphill slows the car and downhill speeds it up.
+
+To add a track, add an entry to the `TRACKS` list in `index.html`: a name, ground and sky colours, and a list of `[x, z, height]` points (height is optional). Where the track crosses itself, make the upper road at least 11 units higher. Keep the points on a closed loop, with a straight start section, corners no tighter than about 30 units, and at least 40 units between parts of the track.
 
 ## Racing
 
