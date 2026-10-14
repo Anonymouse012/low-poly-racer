@@ -8,6 +8,16 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd3ff; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #fff; }
   canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
   #fx { position: fixed; inset: 0; pointer-events: none; }
+  #big { top: 26%; left: 0; right: 0; text-align: center; font-size: clamp(60px, 16vw, 160px); line-height: 1; }
+  #posInfo { color: #ffd37a; }
+  .sw { width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 3px solid transparent; }
+  .sw.on { border-color: #fff; }
+  #name { text-transform: none; letter-spacing: 0; width: 190px; }
+  #startBtn { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); display: none; font-size: 18px; }
+  #results { position: fixed; top: 14%; left: 50%; transform: translateX(-50%); display: none; min-width: 260px; max-width: 90vw; background: rgba(20,30,50,.85); border-radius: 14px; padding: 16px 20px; text-align: center; }
+  #results h2 { margin: 0 0 10px; }
+  .rr { display: flex; justify-content: space-between; gap: 24px; padding: 3px 0; }
+  .rr.me { color: #ffd37a; font-weight: 700; }
   .hud { position: fixed; pointer-events: none; text-shadow: 0 2px 6px rgba(0,0,0,.6); font-weight: 700; }
   #hudLeft { top: 14px; left: 16px; font-size: 18px; line-height: 1.5; }
   #hudLeft .big { font-size: 40px; }
@@ -43,6 +53,7 @@
 <div class="hud" id="hudLeft">
   <div><span class="big" id="speed">0</span> km/h</div>
   <div id="lapInfo">Lap 1</div>
+  <div id="posInfo"></div>
   <div id="timeInfo">Last: -- &nbsp; Best: --</div>
 </div>
 <canvas id="mini" width="160" height="160"></canvas>
@@ -51,6 +62,13 @@
   <div id="roomBtn" title="Click to copy invite link"></div>
 </div>
 <div class="hud" id="toast"></div>
+<div class="hud" id="big"></div>
+<button id="startBtn">Start race</button>
+<div id="results">
+  <h2 id="resTitle"></h2>
+  <div id="resList"></div>
+  <button id="again" style="margin-top:10px">Race again</button>
+</div>
 
 <div class="touch">
   <div class="grp"><button id="tLeft">◀</button><button id="tRight">▶</button></div>
@@ -60,14 +78,16 @@
 <div id="menu">
   <h1>LOW POLY RACER</h1>
   <p>Race friends right in your browser. Cars pass through each other, so nobody gets wrecked.</p>
-  <button id="solo">Drive solo</button>
+  <input id="name" maxlength="12" placeholder="Your name" autocomplete="off">
+  <div class="row" id="swatches"></div>
+  <button id="solo">Drive solo (3 laps)</button>
   <button id="host">Host a race</button>
   <div class="row">
     <input id="code" maxlength="5" placeholder="CODE" autocomplete="off">
     <button id="join">Join</button>
   </div>
   <div id="status"></div>
-  <small>W / ↑ gas &nbsp;·&nbsp; S / ↓ brake &nbsp;·&nbsp; A D / ← → steer &nbsp;·&nbsp; Space handbrake (drift) &nbsp;·&nbsp; R reset to track</small>
+  <small>W / ↑ gas &nbsp;·&nbsp; S / ↓ brake &nbsp;·&nbsp; A D / ← → steer &nbsp;·&nbsp; Space handbrake (drift) &nbsp;·&nbsp; R reset to track &nbsp;·&nbsp; M mute</small>
 </div>
 
 <script type="module">
@@ -414,8 +434,14 @@ function animateCar(car, dt, steer, vf, braking, accel) {
 }
 
 const VMAX = 92;                      // top speed (world units per second)
-const me = { x: 0, z: 0, th: 0, speed: 0, spd: 0, vx: 0, vz: 0, steer: 0, hue: Math.random() };
-const myCar = makeCar(me.hue);
+const HUES = [0.0, 0.07, 0.14, 0.33, 0.5, 0.6, 0.75, 0.9];
+let prefs = {};
+try { prefs = JSON.parse(localStorage.getItem('lpr') || '{}') || {}; } catch (e) { prefs = {}; }
+function savePrefs() { try { localStorage.setItem('lpr', JSON.stringify({ name: me.name, hue: me.hue })); } catch (e) {} }
+const me = { x: 0, z: 0, th: 0, speed: 0, spd: 0, slip: 0, prog: 0, vx: 0, vz: 0, steer: 0,
+  hue: typeof prefs.hue === 'number' ? prefs.hue : HUES[Math.floor(Math.random() * HUES.length)],
+  name: String(prefs.name || ('Player' + Math.floor(Math.random() * 90 + 10))).slice(0, 12) };
+let myCar = makeCar(me.hue);
 scene.add(myCar);
 
 function spawn() {
@@ -476,6 +502,59 @@ function addMarks(fx, fz, lx, lz, yaw) {
   markMesh.instanceMatrix.needsUpdate = true;
 }
 
+/* ---------- sound (all synthesised, no files) ---------- */
+let AC = null, eng = null, scr = null, muted = false;
+function initAudio() {
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    const master = AC.createGain(); master.gain.value = 0.5; master.connect(AC.destination);
+    AC.out = master;
+    const o1 = AC.createOscillator(); o1.type = 'sawtooth';
+    const o2 = AC.createOscillator(); o2.type = 'square';
+    const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700;
+    const g = AC.createGain(); g.gain.value = 0;
+    o1.connect(lp); o2.connect(lp); lp.connect(g); g.connect(master); o1.start(); o2.start();
+    eng = { o1, o2, lp, g };
+    const n = AC.sampleRate, buf = AC.createBuffer(1, n, n), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const src = AC.createBufferSource(); src.buffer = buf; src.loop = true;
+    const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 0.8;
+    const sg = AC.createGain(); sg.gain.value = 0;
+    src.connect(bp); bp.connect(sg); sg.connect(master); src.start();
+    scr = { g: sg, bp };
+  } catch (e) { AC = null; eng = null; scr = null; }
+}
+function beep(freq, dur = 0.18) {
+  if (!AC || muted) return;
+  try {
+    const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime;
+    o.type = 'square'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(AC.out); o.start(t); o.stop(t + dur);
+  } catch (e) {}
+}
+// engine pitch climbs through 5 "gears" so you hear the speed building; tyres squeal when sliding
+function soundTick(thr, slip, brk) {
+  if (!AC || !eng) return;
+  const t = AC.currentTime, sf = Math.min(1, me.spd / VMAX);
+  const gear = Math.min(4, Math.floor(sf * 5)), frac = Math.min(1, sf * 5 - gear);
+  const rpm = (thr ? 0.25 : 0.12) + (thr ? 0.75 : 0.5) * frac;
+  const freq = 46 + 150 * rpm + gear * 14;
+  eng.o1.frequency.setTargetAtTime(freq, t, 0.05);
+  eng.o2.frequency.setTargetAtTime(freq * 0.5, t, 0.05);
+  eng.lp.frequency.setTargetAtTime(450 + rpm * 1500, t, 0.05);
+  eng.g.gain.setTargetAtTime(muted ? 0 : (0.04 + 0.06 * (0.4 + 0.6 * sf)) * (thr ? 1 : 0.55), t, 0.08);
+  const slide = Math.max(0, Math.min(1, (Math.abs(slip) - 3) / 12)) + (brk && me.spd > 25 ? 0.4 : 0);
+  scr.g.gain.setTargetAtTime(muted ? 0 : 0.16 * Math.min(1, slide), t, 0.05);
+  scr.bp.frequency.setTargetAtTime(1400 + 800 * sf, t, 0.1);
+}
+window.addEventListener('keydown', e => {
+  if (e.target && e.target.tagName === 'INPUT') return;
+  initAudio();
+  if (e.code === 'KeyM') { muted = !muted; toast(muted ? 'Sound off' : 'Sound on', 1200); }
+});
+
 /* ---------- driving + laps ---------- */
 let lapsDone = 0, half = false, lastIdx = SPAWN_IDX, lapStart = performance.now();
 let touchingWall = false;
@@ -484,11 +563,13 @@ let started = false;
 const fmt = t => t == null ? '--' : t.toFixed(2) + 's';
 
 function update(dt) {
-  const up = keys.ArrowUp || keys.KeyW || touch.gas;
-  const down = keys.ArrowDown || keys.KeyS || touch.brake;
-  const left = keys.ArrowLeft || keys.KeyA || touch.left;
-  const right = keys.ArrowRight || keys.KeyD || touch.right;
-  const hand = keys.Space;
+  raceTick();
+  const frozen = race.state === 'countdown';          // can't drive until GO
+  const up = !frozen && (keys.ArrowUp || keys.KeyW || touch.gas);
+  const down = !frozen && (keys.ArrowDown || keys.KeyS || touch.brake);
+  const left = !frozen && (keys.ArrowLeft || keys.KeyA || touch.left);
+  const right = !frozen && (keys.ArrowRight || keys.KeyD || touch.right);
+  const hand = !frozen && keys.Space;
 
   const near = nearest(me.x, me.z);
   const off = near.d > ROAD_W + KERB_W;
@@ -526,6 +607,7 @@ function update(dt) {
   grip *= 1 - 0.3 * Math.min(1, spd / VMAX) * Math.abs(me.steer);
   if (off) grip *= 0.75;
   vl *= Math.exp(-grip * dt);
+  me.slip = vl;
 
   // turn rate: sharp at low speed, lazy at top speed, and much sharper when braking / handbraking
   const sp = Math.abs(vf);
@@ -565,6 +647,7 @@ function update(dt) {
 
   // lap counting
   const idx = near.i;
+  me.prog = lapsDone + ((lapsDone === 0 && !half && idx > N * 0.8) ? idx / N - 1 : idx / N);
   if (idx >= N * 0.4 && idx <= N * 0.6) half = true;
   if (lastIdx > N * 0.8 && idx < N * 0.2) {
     if (half) {
@@ -572,6 +655,7 @@ function update(dt) {
       lastLap = (now - lapStart) / 1000;
       bestLap = bestLap == null ? lastLap : Math.min(bestLap, lastLap);
       lapStart = now; lapsDone++;
+      if (race.state === 'racing' && lapsDone >= LAPS) finishRace(now);
     }
     half = false;
   }
@@ -582,7 +666,8 @@ function update(dt) {
   animateCar(myCar, dt, me.steer, me.speed, braking, !!up && !down);
 
   document.getElementById('speed').textContent = Math.round(me.spd * 2);
-  document.getElementById('lapInfo').textContent = 'Lap ' + (lapsDone + 1);
+  document.getElementById('lapInfo').textContent = race.state === 'free' ? 'Lap ' + (lapsDone + 1) : 'Lap ' + Math.min(lapsDone + 1, LAPS) + '/' + LAPS;
+  soundTick(!!up && !down, me.slip, braking);
   document.getElementById('timeInfo').innerHTML = 'Last: ' + fmt(lastLap) + ' &nbsp; Best: ' + fmt(bestLap);
 }
 
@@ -595,7 +680,8 @@ const setStatus = msg => { statusEl.textContent = msg; };
 function toast(msg, ms = 3000) { $('toast').textContent = msg; setTimeout(() => { if ($('toast').textContent === msg) $('toast').textContent = ''; }, ms); }
 
 function mine() {
-  return { x: +me.x.toFixed(2), z: +me.z.toFixed(2), r: +me.th.toFixed(3), v: +me.speed.toFixed(1), h: me.hue };
+  return { x: +me.x.toFixed(2), z: +me.z.toFixed(2), r: +me.th.toFixed(3), v: +me.speed.toFixed(1), h: me.hue,
+    n: me.name, p: +me.prog.toFixed(3), f: race.finish };
 }
 function startGame() {
   started = true; menu.style.display = 'none';
@@ -626,7 +712,7 @@ function startHost() {
   const peer = new Peer('lpr-' + code);
   net.peer = peer; net.host = true;
   peer.on('open', id => {
-    net.id = id; showRoom(code); startGame();
+    net.id = id; showRoom(code); startGame(); $('startBtn').style.display = 'block';
     setInterval(() => {
       const snap = {}; snap[net.id] = mine(); Object.assign(snap, net.states);
       for (const c of Object.values(net.conns)) if (c.open) c.send({ t: 'w', p: snap });
@@ -659,7 +745,11 @@ function joinRoom(raw) {
       clearTimeout(timer); showRoom(code); startGame();
       setInterval(() => { if (conn.open) conn.send({ t: 's', s: mine() }); }, 50);
     });
-    conn.on('data', d => { if (d && d.t === 'w') net.snapshot = d.p; });
+    conn.on('data', d => {
+      if (!d) return;
+      if (d.t === 'w') net.snapshot = d.p;
+      else if (d.t === 'go' && Array.isArray(d.ids)) startRace(d.ids);
+    });
     conn.on('close', () => { net.snapshot = {}; toast('Disconnected from the host', 6000); });
   });
   peer.on('error', e => {
@@ -682,6 +772,11 @@ function syncRemotes(dt) {
       r.mesh.position.set(s.x, 0, s.z); r.mesh.rotation.y = s.r;
       scene.add(r.mesh);
     }
+    const nm = String(s.n || 'Player').slice(0, 12);
+    if (r.name !== nm) {
+      if (r.label) r.mesh.remove(r.label);
+      r.label = makeLabel(nm); r.name = nm; r.mesh.add(r.label);
+    }
     r.mesh.position.x += (s.x - r.mesh.position.x) * k;
     r.mesh.position.z += (s.z - r.mesh.position.z) * k;
     let d = s.r - r.mesh.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -693,10 +788,119 @@ function syncRemotes(dt) {
   $('players').textContent = net.peer ? n + (n === 1 ? ' player' : ' players') : 'Solo';
 }
 
+/* ---------- race mode ---------- */
+const LAPS = 3;
+const race = { state: 'free', t0: 0, goT: 0, finish: null };   // free (practice) | countdown | racing | finished
+let lastBeep = 0, hudTick = 0;
+
+function makeLabel(text) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  const g = c.getContext('2d');
+  g.font = 'bold 34px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,.65)'; g.strokeText(text, 128, 32);
+  g.fillStyle = '#fff'; g.fillText(text, 128, 32);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true }));
+  spr.scale.set(8, 2, 1); spr.position.y = 3.4;
+  return spr;
+}
+function bigText(t, ms) {
+  const b = $('big'); b.textContent = t;
+  if (ms) setTimeout(() => { if (b.textContent === t) b.textContent = ''; }, ms);
+}
+// two columns of grid slots behind the start line; everyone computes the same slot from the sorted id list
+function gridSlot(slot) {
+  const row = Math.floor(slot / 2), col = slot % 2;
+  const i = ((N - 12 - row * 9) % N + N) % N;
+  const p = center[i], t = tang[i], off = col ? 3.5 : -3.5;
+  return { x: p.x + (-t.z) * off, z: p.z + t.x * off, th: Math.atan2(t.x, t.z), i };
+}
+function startRace(ids) {
+  const g = gridSlot(Math.max(0, ids.indexOf(net.id)));
+  me.x = g.x; me.z = g.z; me.th = g.th;
+  me.vx = 0; me.vz = 0; me.speed = 0; me.spd = 0; me.steer = 0; me.slip = 0;
+  lapsDone = 0; half = false; lastIdx = g.i; lastLap = null; bestLap = null;
+  race.state = 'countdown'; race.t0 = performance.now(); race.finish = null;
+  lastBeep = 0;
+  $('results').style.display = 'none';
+  $('startBtn').style.display = 'none';
+  started = true; menu.style.display = 'none';
+}
+function raceTick() {
+  if (race.state !== 'countdown') return;
+  const left = 3 - (performance.now() - race.t0) / 1000;
+  if (left > 0) {
+    const n = Math.ceil(left);
+    if (n !== lastBeep) { lastBeep = n; beep(440); bigText(String(n)); }
+  } else {
+    race.state = 'racing'; race.goT = performance.now(); lapStart = race.goT;
+    beep(880, 0.45); bigText('GO!', 900);
+  }
+}
+function finishRace(now) {
+  race.state = 'finished';
+  race.finish = (now - race.goT) / 1000;
+  beep(660, 0.4);
+  showResults();
+}
+function players() {
+  const src = net.peer ? (net.host ? net.states : net.snapshot) : {};
+  const list = [{ id: net.id || 'me', n: me.name, p: me.prog, f: race.finish, me: true }];
+  for (const id in src) {
+    if (id === net.id) continue;
+    const x = src[id];
+    list.push({ id, n: String(x.n || 'Player').slice(0, 12), p: x.p || 0, f: x.f == null ? null : x.f });
+  }
+  list.sort((a, b) => (a.f != null && b.f != null) ? a.f - b.f : a.f != null ? -1 : b.f != null ? 1 : b.p - a.p);
+  return list;
+}
+function showResults() {
+  const L = players(), mineIdx = L.findIndex(x => x.me) + 1;
+  const ord = ['', '1st', '2nd', '3rd'][mineIdx] || (mineIdx + 'th');
+  $('resTitle').textContent = race.finish != null ? 'Finished ' + ord + '!' : 'Results';
+  const box = $('resList'); box.textContent = '';
+  L.forEach((x, i) => {
+    const row = document.createElement('div'); row.className = 'rr' + (x.me ? ' me' : '');
+    const a = document.createElement('span'); a.textContent = (i + 1) + '. ' + x.n;
+    const b = document.createElement('span'); b.textContent = x.f != null ? x.f.toFixed(2) + 's' : 'racing...';
+    row.appendChild(a); row.appendChild(b); box.appendChild(row);
+  });
+  $('again').style.display = (!net.peer || net.host) ? 'inline-block' : 'none';
+  $('results').style.display = 'block';
+}
+function updatePos() {
+  const L = players(), i = L.findIndex(x => x.me);
+  $('posInfo').textContent = L.length > 1 ? 'Position ' + (i + 1) + '/' + L.length : '';
+}
+function hostStart() {
+  const ids = [net.id].concat(Object.keys(net.conns).filter(id => net.conns[id].open)).sort();
+  for (const c of Object.values(net.conns)) if (c.open) c.send({ t: 'go', ids });
+  startRace(ids);
+}
+$('startBtn').onclick = () => hostStart();
+$('again').onclick = () => { if (net.peer && net.host) hostStart(); else startRace([]); };
+
 /* ---------- menu wiring ---------- */
-$('solo').onclick = () => startGame();
-$('host').onclick = () => startHost();
-$('join').onclick = () => joinRoom($('code').value);
+$('name').value = me.name;
+$('name').oninput = e => { me.name = (e.target.value || 'Player').slice(0, 12); savePrefs(); };
+const swEls = [];
+function setHue(h) {
+  me.hue = h; savePrefs();
+  scene.remove(myCar);
+  myCar = makeCar(h);
+  myCar.position.set(me.x, 0, me.z); myCar.rotation.y = me.th;
+  scene.add(myCar);
+  swEls.forEach((b, i) => b.className = 'sw' + (HUES[i] === h ? ' on' : ''));
+}
+HUES.forEach(h => {
+  const b = document.createElement('button');
+  b.style.background = '#' + new THREE.Color().setHSL(h, 0.85, 0.5).getHexString();
+  b.onclick = () => setHue(h);
+  $('swatches').appendChild(b); swEls.push(b);
+});
+swEls.forEach((b, i) => b.className = 'sw' + (HUES[i] === me.hue ? ' on' : ''));
+$('solo').onclick = () => { initAudio(); startGame(); startRace([]); };
+$('host').onclick = () => { initAudio(); startHost(); };
+$('join').onclick = () => { initAudio(); joinRoom($('code').value); };
 $('code').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('code').value); });
 const roomParam = new URLSearchParams(location.search).get('room');
 if (roomParam) $('code').value = roomParam.toUpperCase().slice(0, 5);
@@ -801,6 +1005,7 @@ function loop() {
   const fov = 66 + 26 * sf * sf;                       // widens with speed, which is most of what makes it feel fast
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * (1 - Math.exp(-6 * dt)); camera.updateProjectionMatrix(); }
   drawFx(sf, dt);
+  if (++hudTick % 12 === 0 && started) { updatePos(); if (race.state === 'finished') showResults(); }
   renderer.render(scene, camera);
 }
 loop();
