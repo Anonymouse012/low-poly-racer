@@ -99,7 +99,7 @@ import * as THREE from 'three';
 
 /* ---------- renderer / scene ---------- */
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9fd3ff);
@@ -124,6 +124,7 @@ const ground = new THREE.Mesh(
   new THREE.MeshStandardMaterial({ color: 0x5a9e4b, flatShading: true })
 );
 ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.3;            // sits clearly below the road so the two can never fight
 scene.add(ground);
 
 /* ---------- track ---------- */
@@ -245,8 +246,8 @@ const tang = center.map((p, i) =>
     new THREE.MeshStandardMaterial({ color: 0x2f7a3a, flatShading: true }), spots.length);
   const m = new THREE.Matrix4();
   spots.forEach(([x, z, s], i) => {
-    m.makeScale(s, s, s).setPosition(x, 1 * s, z); trunks.setMatrixAt(i, m);
-    m.makeScale(s, s, s).setPosition(x, 5.5 * s, z); tops.setMatrixAt(i, m);
+    m.makeScale(s, s, s).setPosition(x, 1 * s - 0.3, z); trunks.setMatrixAt(i, m);
+    m.makeScale(s, s, s).setPosition(x, 5.5 * s - 0.3, z); tops.setMatrixAt(i, m);
   });
   scene.add(trunks, tops);
 })();
@@ -283,13 +284,16 @@ const tang = center.map((p, i) =>
 (function buildBridges() {
   const pos = [], col = [];
   const conc = new THREE.Color(0x8f939c), under = new THREE.Color(0x6f737c);
-  const W2 = ROAD_W + KERB_W;
-  const at = (i, s, y) => { const p = center[i % N], t = tang[i % N]; return [p.x + (-t.z) * s * W2, p.y + y, p.z + t.x * s * W2]; };
+  const KW = ROAD_W + KERB_W, W2 = WALL_D + 0.8;      // the deck runs out underneath the barriers
+  const at = (i, s, y, w = W2) => { const p = center[i % N], t = tang[i % N]; return [p.x + (-t.z) * s * w, p.y + y, p.z + t.x * s * w]; };
   const quad = (a, b, c, d, color) => { for (const v of [a, b, c, a, c, d]) { pos.push(v[0], v[1], v[2]); col.push(color.r, color.g, color.b); } };
   for (let i = 0; i < N; i++) {
-    if (Math.min(center[i].y, center[(i + 1) % N].y) < 1.0) continue;
+    if (Math.min(center[i].y, center[(i + 1) % N].y) < 0.4) continue;
     quad(at(i, 1, -0.9), at(i + 1, 1, -0.9), at(i + 1, -1, -0.9), at(i, -1, -0.9), under);
-    for (const s of [1, -1]) quad(at(i, s, 0.05), at(i + 1, s, 0.05), at(i + 1, s, -0.9), at(i, s, -0.9), conc);
+    for (const s of [1, -1]) {
+      quad(at(i, s, 0.05), at(i + 1, s, 0.05), at(i + 1, s, -0.9), at(i, s, -0.9), conc);
+      quad(at(i, s, 0.04, KW), at(i + 1, s, 0.04, KW), at(i + 1, s, 0.04, W2), at(i, s, 0.04, W2), conc);   // flat verge between kerb and barrier
+    }
   }
   if (pos.length) {
     const geo = new THREE.BufferGeometry();
@@ -309,8 +313,8 @@ const tang = center.map((p, i) =>
     }
     if (blocked) continue;
     const h = c.y - 0.9;
-    const pil = new THREE.Mesh(new THREE.BoxGeometry(5, h, 2.4), pm);
-    pil.position.set(c.x, h / 2, c.z);
+    const pil = new THREE.Mesh(new THREE.BoxGeometry(12, h + 0.5, 2.4), pm);
+    pil.position.set(c.x, (h - 0.5) / 2, c.z);
     pil.rotation.y = Math.atan2(tang[i].x, tang[i].z);
     scene.add(pil);
   }
