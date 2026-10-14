@@ -104,7 +104,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9fd3ff);
 scene.fog = new THREE.Fog(0x9fd3ff, 220, 1150);
-const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 2000);
+const camera = new THREE.PerspectiveCamera(70, 1, 1, 2000);
 
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -189,14 +189,14 @@ const tang = center.map((p, i) =>
     const R1 = side(i + 1, 1, ROAD_W), L1 = side(i + 1, -1, ROAD_W);
     quad(R0, R1, L1, L0, Math.floor(i / 3) % 2 ? road1 : road2, 0.05);
     if (Math.floor(i / 4) % 2 === 0) {            // dashed centre line
-      quad(side(i, 1, 0.3), side(i + 1, 1, 0.3), side(i + 1, -1, 0.3), side(i, -1, 0.3), white, 0.07);
+      quad(side(i, 1, 0.3), side(i + 1, 1, 0.3), side(i + 1, -1, 0.3), side(i, -1, 0.3), white, 0.12);
     }
 
     const kc = Math.floor(i / 2) % 2 ? red : white;
     for (const s of [1, -1]) {
       const in0 = side(i, s, ROAD_W), out0 = side(i, s, ROAD_W + KERB_W);
       const in1 = side(i + 1, s, ROAD_W), out1 = side(i + 1, s, ROAD_W + KERB_W);
-      quad(in0, out0, out1, in1, kc, 0.08);
+      quad(in0, out0, out1, in1, kc, 0.16);
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -218,7 +218,7 @@ const tang = center.map((p, i) =>
   const lineGeo = new THREE.PlaneGeometry(ROAD_W * 2, 3);
   lineGeo.rotateX(-Math.PI / 2);
   const line = new THREE.Mesh(lineGeo, new THREE.MeshBasicMaterial({ map: tex }));
-  line.position.set(center[0].x, center[0].y + 0.1, center[0].z);
+  line.position.set(center[0].x, center[0].y + 0.22, center[0].z);
   line.rotation.y = Math.atan2(tang[0].x, tang[0].z);
   scene.add(line);
 })();
@@ -557,7 +557,7 @@ function addMarks(fx, fz, lx, lz, yaw) {
   if (Math.hypot(me.x - lastMX, me.z - lastMZ) < 1.0) return;
   lastMX = me.x; lastMZ = me.z;
   for (const sx of [-1, 1]) {
-    markDummy.position.set(me.x - fx * 1.35 + lx * 1.2 * sx, me.y + 0.12, me.z - fz * 1.35 + lz * 1.2 * sx);
+    markDummy.position.set(me.x - fx * 1.35 + lx * 1.2 * sx, me.y + 0.3, me.z - fz * 1.35 + lz * 1.2 * sx);
     markDummy.rotation.set(-Math.PI / 2, yaw, 0);
     markDummy.updateMatrix();
     markMesh.setMatrixAt(markI, markDummy.matrix);
