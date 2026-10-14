@@ -10,6 +10,8 @@
   #fx { position: fixed; inset: 0; pointer-events: none; }
   #big { top: 26%; left: 0; right: 0; text-align: center; font-size: clamp(60px, 16vw, 160px); line-height: 1; }
   #posInfo { color: #ffd37a; }
+  .tr { padding: 8px 12px; background: #3b4a63; }
+  .tr.on { background: #ff5a3c; }
   .sw { width: 30px; height: 30px; padding: 0; border-radius: 50%; border: 3px solid transparent; }
   .sw.on { border-color: #fff; }
   #name { text-transform: none; letter-spacing: 0; width: 190px; }
@@ -78,6 +80,7 @@
 <div id="menu">
   <h1>LOW POLY RACER</h1>
   <p>Race friends right in your browser. Cars pass through each other, so nobody gets wrecked.</p>
+  <div class="row" id="tracks"></div>
   <input id="name" maxlength="12" placeholder="Your name" autocomplete="off">
   <div class="row" id="swatches"></div>
   <button id="solo">Drive solo (3 laps)</button>
@@ -128,7 +131,8 @@ const KERB_W = 1.2;
 const WALL_D = ROAD_W + KERB_W + 3.5;   // distance from the centre line to the barriers
 // A proper circuit (about 1.5 km): start straight, fast right, chicane, back straight,
 // hairpin, left kink, long sweeper and a final corner back onto the straight.
-const controlPts = [
+const TRACKS = [
+  { name: 'Grand Circuit', ground: 0x5a9e4b, sky: 0x9fd3ff, pts: [
   [-60, 0], [60, 0], [170, -2],                                          // start / finish straight
   [225, 12], [262, 50], [272, 100],                                      // fast right-hander
   [284, 145], [268, 185], [270, 230],                                    // chicane
@@ -138,7 +142,19 @@ const controlPts = [
   [-70, 225], [-30, 212], [-5, 185],                                     // left kink
   [-10, 150], [-45, 125], [-95, 105],                                    // long right-hand sweeper
   [-135, 80], [-145, 45], [-125, 15], [-90, 2]                           // final corner
-].map(([x, z]) => new THREE.Vector3(x, 0, z));
+] },
+  { name: 'Mountain Loop', ground: 0x8c7b47, sky: 0xe8c9a0, pts: [   // tight and twisty, about 1.1 km
+    [-60, 0], [50, 0], [140, 2], [205, -20], [240, -70], [235, -125], [200, -165], [150, -175], [110, -150],
+    [85, -110], [40, -95], [-5, -115], [-45, -160], [-100, -175], [-150, -150], [-175, -100], [-165, -50], [-120, -15]] },
+  { name: 'Coastal Sprint', ground: 0xc9b97a, sky: 0x8fd0ff, pts: [   // fast and flowing, about 1.4 km
+    [-100, 0], [20, 0], [140, 0], [250, -5], [320, 25], [350, 85], [340, 150], [300, 195], [240, 215], [185, 200],
+    [150, 160], [120, 115], [75, 100], [20, 115], [-30, 150], [-85, 165], [-150, 150], [-185, 105], [-190, 45], [-160, 10]] }
+];
+const TRACK_ID = (() => { const t = parseInt(new URLSearchParams(location.search).get('track'), 10); return t >= 0 && t < TRACKS.length ? t : 0; })();
+const TRACK_LETTERS = 'ABCDEFGH'.slice(0, TRACKS.length);   // first letter of a room code says which track it uses
+ground.material.color.setHex(TRACKS[TRACK_ID].ground);
+scene.background.setHex(TRACKS[TRACK_ID].sky); scene.fog.color.setHex(TRACKS[TRACK_ID].sky);
+const controlPts = TRACKS[TRACK_ID].pts.map(([x, z]) => new THREE.Vector3(x, 0, z));
 const curve = new THREE.CatmullRomCurve3(controlPts, true, 'centripetal');
 const N = 800;
 const SPAWN_IDX = N - 10;
@@ -701,7 +717,7 @@ function showRoom(code) {
 }
 function genCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let c = ''; for (let i = 0; i < 5; i++) c += chars[Math.floor(Math.random() * chars.length)];
+  let c = TRACK_LETTERS[TRACK_ID]; for (let i = 0; i < 4; i++) c += chars[Math.floor(Math.random() * chars.length)];
   return c;
 }
 
@@ -733,6 +749,8 @@ function joinRoom(raw) {
   const code = raw.trim().toUpperCase();
   if (code.length !== 5) return setStatus('Enter the 5-character room code.');
   if (typeof Peer === 'undefined') return setStatus('Multiplayer library failed to load. Check your connection.');
+  const tr = TRACK_LETTERS.indexOf(code[0]);
+  if (tr >= 0 && tr !== TRACK_ID) { location.search = '?track=' + tr + '&room=' + code + '&join=1'; return; }   // load the host's track first
   setStatus('Connecting...');
   const peer = new Peer();
   net.peer = peer; net.host = false;
@@ -898,12 +916,19 @@ HUES.forEach(h => {
   $('swatches').appendChild(b); swEls.push(b);
 });
 swEls.forEach((b, i) => b.className = 'sw' + (HUES[i] === me.hue ? ' on' : ''));
+TRACKS.forEach((t, i) => {
+  const b = document.createElement('button');
+  b.textContent = t.name; b.className = 'tr' + (i === TRACK_ID ? ' on' : '');
+  b.onclick = () => { if (i !== TRACK_ID) location.search = '?track=' + i; };   // reload with that track
+  $('tracks').appendChild(b);
+});
 $('solo').onclick = () => { initAudio(); startGame(); startRace([]); };
 $('host').onclick = () => { initAudio(); startHost(); };
 $('join').onclick = () => { initAudio(); joinRoom($('code').value); };
 $('code').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('code').value); });
 const roomParam = new URLSearchParams(location.search).get('room');
 if (roomParam) $('code').value = roomParam.toUpperCase().slice(0, 5);
+if (new URLSearchParams(location.search).get('join') === '1' && $('code').value.length === 5) joinRoom($('code').value);
 
 /* ---------- minimap ---------- */
 const mini = $('mini'), mctx = mini.getContext('2d');

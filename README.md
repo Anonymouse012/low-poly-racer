@@ -17,6 +17,12 @@ A low poly racing game that runs in your browser, with peer-to-peer multiplayer.
 
 On phones and tablets, on-screen buttons appear.
 
+## Tracks
+
+Three tracks, picked from the menu: **Grand Circuit** (1.5 km, the original), **Mountain Loop** (tight and twisty, autumn colours) and **Coastal Sprint** (fast and flowing, sandy). The page reloads when you pick one. In multiplayer the first letter of the room code says which track it uses (A, B or C), so joining a room loads the right track automatically.
+
+To add a track, add an entry to the `TRACKS` list in `index.html`: a name, ground and sky colours, and a list of `[x, z]` points. Keep the points on a closed loop, with a straight start section, corners no tighter than about 30 units, and at least 40 units between parts of the track.
+
 ## Racing
 
 Pick a name and a car colour on the menu (they're remembered on your device). **Drive solo** starts a 3-lap time trial with a 3-2-1 countdown, and a results card shows your time at the end.
