@@ -14,6 +14,7 @@ A low poly racing game that runs in your browser, with peer-to-peer multiplayer.
 | Space | Handbrake (drift) |
 | R | Put the car back on the track |
 | M | Mute / unmute sound |
+| Esc | Back to the main menu (or use the Menu button, top right) |
 
 On phones and tablets, on-screen buttons appear.
 
