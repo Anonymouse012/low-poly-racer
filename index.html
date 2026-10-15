@@ -62,10 +62,10 @@
 <div class="hud" id="hudRight">
   <div id="players">Solo</div>
   <div id="roomBtn" title="Click to copy invite link"></div>
-  <button id="menuBtn" style="padding:6px 12px;margin-top:6px;font-size:14px">Menu (Esc)</button>
 </div>
 <div class="hud" id="toast"></div>
 <div class="hud" id="big"></div>
+<button id="menuBtn" style="position:fixed;top:14px;left:50%;transform:translateX(-50%);padding:6px 14px;font-size:14px">&#9776; Menu (Esc)</button>
 <button id="startBtn">Start race</button>
 <div id="results">
   <h2 id="resTitle"></h2>
@@ -92,6 +92,7 @@
   </div>
   <div id="status"></div>
   <small>W / ↑ gas &nbsp;·&nbsp; S / ↓ brake &nbsp;·&nbsp; A D / ← → steer &nbsp;·&nbsp; Space handbrake (drift) &nbsp;·&nbsp; R reset to track &nbsp;·&nbsp; M mute</small>
+  <small id="ver"></small>
 </div>
 
 <script type="module">
@@ -339,7 +340,20 @@ const tang = center.map((p, i) =>
   scene.add(gantry);
 
   // grandstand on the outside of the start straight
-  const si = Math.round(N * 0.07), sp = center[si], st = tang[si];
+  let si = Math.round(N * 0.07), sd = 1;
+  search: for (const f of [0.07, 0.04, 0.1, 0.13, 0.02, -0.03, -0.06, 0.16, 0.2]) {
+    for (const side of [1, -1]) {
+      const ii = ((Math.round(N * f) % N) + N) % N, p = center[ii], t = tang[ii];
+      let clear = true;
+      for (let u = -57; u <= 57 && clear; u += 19) for (const v of [WALL_D + 8, WALL_D + 22]) {
+        const x = p.x + t.x * u + side * t.z * v, z = p.z + t.z * u - side * t.x * v;
+        for (let j = 0; j < N; j++) if (Math.hypot(center[j].x - x, center[j].z - z) < WALL_D + 6) { clear = false; break; }
+        if (!clear) break;
+      }
+      if (clear) { si = ii; sd = side; break search; }
+    }
+  }
+  const sp = center[si], st = tang[si];
   const stand = new THREE.Group();
   const LEN = 110;
   for (let k = 0; k < 4; k++) {
@@ -362,8 +376,8 @@ const tang = center.map((p, i) =>
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.6, 14, 0.6), mat(0x30343c));
     post.position.set(13.3, 7, z); stand.add(post);
   }
-  stand.position.set(sp.x + st.z * (WALL_D + 8), sp.y, sp.z - st.x * (WALL_D + 8));
-  stand.rotation.y = Math.atan2(st.x, st.z);
+  stand.position.set(sp.x + sd * st.z * (WALL_D + 8), sp.y, sp.z - sd * st.x * (WALL_D + 8));
+  stand.rotation.y = Math.atan2(st.x, st.z) + (sd < 0 ? Math.PI : 0);
   scene.add(stand);
 })();
 
@@ -965,6 +979,7 @@ $('startBtn').onclick = () => hostStart();
 $('again').onclick = () => { if (net.peer && net.host) hostStart(); else startRace([]); };
 
 /* ---------- menu wiring ---------- */
+$('ver').textContent = 'build 15 Oct (a)';
 $('name').value = me.name;
 $('name').oninput = e => { me.name = (e.target.value || 'Player').slice(0, 12); savePrefs(); };
 const swEls = [];
