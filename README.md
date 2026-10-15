@@ -56,3 +56,7 @@ The handling numbers are near the top of the `update()` function in `index.html`
 - `LAPS`: how many laps a race lasts
 
 All sounds are generated in the browser, so there are no audio files.
+
+## Relay server (for networks that block PeerJS)
+
+`relay/` is a small Cloudflare Worker that passes messages between players over WebSockets, for school or work networks that block peerjs.com. To use it, deploy it (Cloudflare dashboard, Workers & Pages, Create, Import a repository, set the root directory to `relay`), then open the game once with `?relay=low-poly-relay.YOURNAME.workers.dev`. The address is remembered on that device, and invite links include it. `?relay=off` goes back to PeerJS. To make it the default for everyone, put the address in `DEFAULT_RELAY` near the top of `index.html`.

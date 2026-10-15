@@ -44,6 +44,54 @@
   @media (pointer: coarse) { .touch { display: flex; } }
 </style>
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+// Optional relay (Cloudflare Worker) in place of PeerJS, for networks that block peerjs.com.
+// Set it once with ?relay=low-poly-relay.YOURNAME.workers.dev (remembered on this device), or put it in DEFAULT_RELAY.
+const DEFAULT_RELAY = '';
+let RELAY = '';
+try { const q = new URLSearchParams(location.search).get('relay'); if (q === 'off') localStorage.removeItem('relay'); else if (q) localStorage.setItem('relay', q); RELAY = q === 'off' ? '' : (q || localStorage.getItem('relay') || ''); } catch (e) {}
+RELAY = (RELAY || DEFAULT_RELAY).replace(/^(wss?|https?):\/\//, '').replace(/\/+$/, '');
+if (RELAY) window.Peer = class {
+  constructor(id) {
+    this.h = {}; this.conns = {}; this.dead = false; this.socks = [];
+    if (id) {
+      this.id = id;
+      const ws = new WebSocket('wss://' + RELAY + '/room/' + id.slice(4) + '?role=host'); this.socks.push(ws);
+      ws.onerror = () => this.dead || this.emit('error', { type: 'network' });
+      ws.onmessage = ev => {
+        let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.err) return this.emit('error', { type: m.err });
+        if (m.ready) return this.emit('open', id);
+        if (m.open) { const c = new RConn(m.open, d => ws.send(JSON.stringify({ to: m.open, d }))); this.conns[m.open] = c; this.emit('connection', c); c.up(); }
+        else if (m.close) { const c = this.conns[m.close]; if (c) { c.down(); delete this.conns[m.close]; } }
+        else if (m.from && this.conns[m.from]) this.conns[m.from].data(m.d);
+      };
+    } else { this.id = 'c' + Math.random().toString(36).slice(2, 9); setTimeout(() => this.emit('open', this.id)); }
+  }
+  on(e, f) { this.h[e] = f; }
+  emit(e, a) { if (this.h[e]) this.h[e](a); }
+  connect(hid) {
+    const ws = new WebSocket('wss://' + RELAY + '/room/' + hid.slice(4) + '?role=join&id=' + this.id); this.socks.push(ws);
+    const c = new RConn(hid, d => ws.send(JSON.stringify(d)));
+    ws.onerror = () => this.dead || this.emit('error', { type: 'network' });
+    ws.onclose = () => c.down();
+    ws.onmessage = ev => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.err) this.emit('error', { type: m.err }); else if (m.ready) c.up(); else if ('d' in m) c.data(m.d);
+    };
+    return c;
+  }
+  destroy() { this.dead = true; this.socks.forEach(s => { try { s.close(); } catch (e) {} }); }
+};
+class RConn {
+  constructor(peer, tx) { this.peer = peer; this.tx = tx; this.h = {}; this.open = false; }
+  on(e, f) { this.h[e] = f; }
+  send(d) { if (this.open) try { this.tx(d); } catch (e) {} }
+  up() { this.open = true; if (this.h.open) this.h.open(); }
+  down() { if (!this.open) return; this.open = false; if (this.h.close) this.h.close(); }
+  data(d) { if (this.h.data) this.h.data(d); }
+}
+</script>
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
@@ -784,7 +832,7 @@ function startGame() {
 }
 function showRoom(code) {
   net.code = code;
-  const link = location.origin + location.pathname + '?room=' + code;
+  const link = location.origin + location.pathname + '?room=' + code + (RELAY ? '&relay=' + RELAY : '');
   const b = $('roomBtn');
   b.style.display = 'block';
   b.textContent = 'Room ' + code + ' (tap to copy link)';
@@ -802,7 +850,7 @@ function genCode() {
 
 function netMsg(e) {
   return ['network', 'server-error', 'socket-error', 'socket-closed'].includes(e.type)
-    ? 'Multiplayer is blocked on this network (peerjs.com can\'t be reached). Solo still works. Try multiplayer on home wifi or a phone hotspot.'
+    ? 'Multiplayer is blocked on this network (the multiplayer server can\'t be reached). Solo still works. Try multiplayer on home wifi or a phone hotspot.'
     : 'Network error: ' + e.type;
 }
 function startHost() {
