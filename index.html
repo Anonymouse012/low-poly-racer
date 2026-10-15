@@ -800,6 +800,11 @@ function genCode() {
   return c;
 }
 
+function netMsg(e) {
+  return ['network', 'server-error', 'socket-error', 'socket-closed'].includes(e.type)
+    ? 'Multiplayer is blocked on this network (peerjs.com can\'t be reached). Solo still works. Try multiplayer on home wifi or a phone hotspot.'
+    : 'Network error: ' + e.type;
+}
 function startHost() {
   if (typeof Peer === 'undefined') return setStatus('Multiplayer library failed to load. Check your connection.');
   setStatus('Creating room...');
@@ -815,7 +820,7 @@ function startHost() {
   });
   peer.on('error', e => {
     if (e.type === 'unavailable-id') { peer.destroy(); startHost(); }
-    else { setStatus('Network error: ' + e.type); toast('Network error: ' + e.type); }
+    else { const m = netMsg(e); setStatus(m); toast(m); }
   });
   peer.on('connection', conn => {
     conn.on('open', () => { net.conns[conn.peer] = conn; toast('A player joined'); });
@@ -851,7 +856,7 @@ function joinRoom(raw) {
   });
   peer.on('error', e => {
     clearTimeout(timer);
-    const msg = e.type === 'peer-unavailable' ? 'Room not found. Check the code.' : 'Network error: ' + e.type;
+    const msg = e.type === 'peer-unavailable' ? 'Room not found. Check the code.' : netMsg(e);
     setStatus(msg); toast(msg);
   });
 }
