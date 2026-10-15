@@ -35,7 +35,7 @@ Pick a name and a car colour on the menu (they're remembered on your device). **
 1. One player clicks **Host a race** and gets a 5-letter room code.
 2. Everyone else enters the code and clicks **Join**, or opens the invite link (tap the room label to copy it).
 3. Everyone can practise until the host clicks **Start race**. Then all cars line up on the grid, the countdown runs, and the first to finish 3 laps wins. The host can click **Race again** on the results card.
-4. Cars pass through each other, so nobody gets wrecked.
+4. Cars bump into each other (a shove, not a wreck).
 
 Players connect directly to each other using WebRTC through [PeerJS](https://peerjs.com/). The host's browser relays everyone's position, so a race works best with 2-6 players. Some strict networks block direct connections, and those players won't be able to join. Multiplayer also needs to reach `peerjs.com`, so school or work networks that block it can't host or join (solo play still works there).
 

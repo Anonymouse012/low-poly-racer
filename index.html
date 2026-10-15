@@ -128,7 +128,7 @@ class RConn {
 
 <div id="menu">
   <h1>LOW POLY RACER</h1>
-  <p>Race friends right in your browser. Cars pass through each other, so nobody gets wrecked.</p>
+  <p>Race friends right in your browser. Cars bump into each other (a shove, not a wreck).</p>
   <div class="row" id="tracks"></div>
   <input id="name" maxlength="12" placeholder="Your name" autocomplete="off">
   <div class="row" id="swatches"></div>
@@ -764,11 +764,33 @@ function update(dt) {
   me.z += me.vz * dt;
   me.th += me.steer * yaw * (vf >= 0 ? 1 : -1) * dt;
   me.speed = vf;
+  me.w = me.steer * yaw * (vf >= 0 ? 1 : -1);
   me.spd = Math.hypot(me.vx, me.vz);
 
   // tyre marks when the car is properly sliding
   if (!off && (Math.abs(vl) > 4 || (braking && vf > 25) || (hand && vf > 12))) {
     addMarks(fx, fz, lx, lz, Math.atan2(me.vx, me.vz));
+  }
+
+  // car-to-car collisions: every player simulates their own car, so each side applies the same bump
+  if (net.peer && !frozen) {
+    for (const id in remotes) {
+      const r = remotes[id], s = r.s; if (!s) continue;
+      const rx = r.mesh.position.x, rz = r.mesh.position.z, rth = r.mesh.rotation.y;
+      let best = null;
+      for (const a of [-1.2, 1.2]) for (const b of [-1.2, 1.2]) {      // each car is two circles, front and back
+        const dx = me.x + Math.sin(me.th) * a - rx - Math.sin(rth) * b, dz = me.z + Math.cos(me.th) * a - rz - Math.cos(rth) * b;
+        const d = Math.hypot(dx, dz), pen = 2.1 - d;
+        if (pen > 0 && (!best || pen > best.pen)) best = { dx, dz, d: d || 0.01, pen };
+      }
+      if (!best) continue;
+      const nx = best.dx / best.d, nz = best.dz / best.d;
+      me.x += nx * best.pen * 0.6; me.z += nz * best.pen * 0.6;
+      const rvn = (me.vx - (s.vx || 0)) * nx + (me.vz - (s.vz || 0)) * nz;   // closing speed along the contact line
+      if (rvn < 0) { const j = -1.35 * rvn * 0.5; me.vx += nx * j; me.vz += nz * j; }
+      me.speed = me.vx * Math.sin(me.th) + me.vz * Math.cos(me.th);
+      me.spd = Math.hypot(me.vx, me.vz);
+    }
   }
 
   // barriers: keep the car on the circuit; it slides along the wall and loses speed
@@ -823,7 +845,7 @@ const setStatus = msg => { statusEl.textContent = msg; };
 function toast(msg, ms = 3000) { $('toast').textContent = msg; setTimeout(() => { if ($('toast').textContent === msg) $('toast').textContent = ''; }, ms); }
 
 function mine() {
-  return { x: +me.x.toFixed(2), y: +me.y.toFixed(2), z: +me.z.toFixed(2), r: +me.th.toFixed(3), v: +me.speed.toFixed(1), h: me.hue,
+  return { x: +me.x.toFixed(2), y: +me.y.toFixed(2), z: +me.z.toFixed(2), r: +me.th.toFixed(3), v: +me.speed.toFixed(1), vx: +me.vx.toFixed(1), vz: +me.vz.toFixed(1), w: +(me.w || 0).toFixed(2), h: me.hue,
     n: me.name, p: +me.prog.toFixed(3), f: race.finish };
 }
 function startGame() {
@@ -911,8 +933,8 @@ function joinRoom(raw) {
 
 function syncRemotes(dt) {
   const src = net.host ? net.states : net.snapshot;
-  const k = 1 - Math.exp(-12 * dt);
-  const seen = {};
+  const k = 1 - Math.exp(-10 * dt);
+  const seen = {}, now = performance.now();
   for (const id in src) {
     if (id === net.id) continue;
     const s = src[id]; seen[id] = true;
@@ -927,11 +949,17 @@ function syncRemotes(dt) {
       if (r.label) r.mesh.remove(r.label);
       r.label = makeLabel(nm); r.name = nm; r.mesh.add(r.label);
     }
-    r.mesh.position.x += (s.x - r.mesh.position.x) * k;
-    r.mesh.position.z += (s.z - r.mesh.position.z) * k;
-    r.mesh.position.y += ((s.y || 0) - r.mesh.position.y) * k;
-    let d = s.r - r.mesh.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
-    r.mesh.rotation.y += d * k;
+    // dead reckoning: keep moving at the last known velocity and ease toward where the car should be now,
+    // so fast cars glide between the 20-per-second updates instead of jumping
+    if (r.s !== s) { r.s = s; r.t = now; }
+    const age = Math.min(0.25, (now - r.t) / 1000), vx = s.vx || 0, vz = s.vz || 0, w = s.w || 0, p = r.mesh.position;
+    const tx = s.x + vx * age, tz = s.z + vz * age;
+    p.x += vx * dt; p.z += vz * dt;
+    const ex = tx - p.x, ez = tz - p.z;
+    if (ex * ex + ez * ez > 900) { p.x = tx; p.z = tz; } else { p.x += ex * k; p.z += ez * k; }
+    p.y += ((s.y || 0) - p.y) * k;
+    let d = s.r + w * age - r.mesh.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
+    r.mesh.rotation.y += d * k + w * dt;
     animateCar(r.mesh, dt, 0, s.v || 0, false, false);
   }
   for (const id in remotes) if (!seen[id]) { scene.remove(remotes[id].mesh); delete remotes[id]; }
