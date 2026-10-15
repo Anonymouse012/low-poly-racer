@@ -47,7 +47,7 @@
 <script>
 // Optional relay (Cloudflare Worker) in place of PeerJS, for networks that block peerjs.com.
 // Set it once with ?relay=low-poly-relay.YOURNAME.workers.dev (remembered on this device), or put it in DEFAULT_RELAY.
-const DEFAULT_RELAY = '';
+const DEFAULT_RELAY = 'low-poly-relay.jlevans146.workers.dev';
 let RELAY = '';
 try { const q = new URLSearchParams(location.search).get('relay'); if (q === 'off') localStorage.removeItem('relay'); else if (q) localStorage.setItem('relay', q); RELAY = q === 'off' ? '' : (q || localStorage.getItem('relay') || ''); } catch (e) {}
 RELAY = (RELAY || DEFAULT_RELAY).replace(/^(wss?|https?):\/\//, '').replace(/\/+$/, '');
