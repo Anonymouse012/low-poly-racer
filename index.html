@@ -152,6 +152,8 @@ class RConn {
   <div class="row" id="tracks"></div>
   <div class="row" id="weather"></div>
   <div class="row"><button id="setupBack" class="tr">Back</button><button id="setupGo">Go</button></div>
+  <button id="tourBtn" class="tr" style="font-size:13px;padding:6px 12px">Refresh map pictures</button>
+  <small id="shotHint"></small>
   <small>Your best lap and best race on each map are saved on this device.</small>
 </div>
 
@@ -1081,7 +1083,7 @@ $('startBtn').onclick = () => hostStart();
 $('again').onclick = () => { if (net.peer && net.host) hostStart(); else startRace([]); };
 
 /* ---------- menu wiring ---------- */
-$('ver').textContent = 'build 16 Oct (e)';
+$('ver').textContent = 'build 16 Oct (f)';
 $('name').value = me.name;
 $('name').oninput = e => { me.name = (e.target.value || 'Player').slice(0, 12); savePrefs(); };
 const swEls = [];
@@ -1100,6 +1102,29 @@ HUES.forEach(h => {
   $('swatches').appendChild(b); swEls.push(b);
 });
 swEls.forEach((b, i) => b.className = 'sw' + (HUES[i] === me.hue ? ' on' : ''));
+/* ---------- map pictures: the game photographs each map once and keeps the picture on this device ---------- */
+const SHOT_KEY = 'lprs';
+const loadShots = () => { try { return JSON.parse(localStorage.getItem(SHOT_KEY) || '{}') || {}; } catch (e) { return {}; } };
+const qpar = new URLSearchParams(location.search), TOUR = qpar.get('tour') === '1', TOUR_WX = qpar.get('wx');
+let shotIn = 45;   // frames to wait so the scene has settled
+function takeShot() {
+  try {
+    const c = document.createElement('canvas'); c.width = 480; c.height = 270;
+    const r = Math.max(480 / canvas.width, 270 / canvas.height);
+    c.getContext('2d').drawImage(canvas, (480 - canvas.width * r) / 2, (270 - canvas.height * r) / 2, canvas.width * r, canvas.height * r);
+    const s = loadShots(); s[TRACK_ID] = c.toDataURL('image/jpeg', 0.65);
+    localStorage.setItem(SHOT_KEY, JSON.stringify(s));
+  } catch (e) {}
+}
+function shotTick() {
+  if (shotIn <= 0 || --shotIn > 0) return;
+  if (TOUR || wxId === 'clear' || !loadShots()[TRACK_ID]) takeShot();   // pictures are taken in clear weather, so they match each other
+  if (!TOUR) return;
+  const n = TRACK_ID + 1, wx = WEATHERS[TOUR_WX] ? TOUR_WX : 'clear';
+  if (n < TRACKS.length) location.search = '?track=' + n + '&tour=1&wx=' + wx;
+  else { try { localStorage.setItem('lprw', wx); } catch (e) {} location.search = '?track=0&setup=solo'; }
+}
+
 /* ---------- map / weather picker, shown after Solo or Host ---------- */
 let chosenTrack = TRACK_ID, setupMode = 'solo';
 const BEST_KEY = 'lprb';
@@ -1142,11 +1167,17 @@ function refreshCards() {
   });
 }
 const hex = n => '#' + n.toString(16).padStart(6, '0');
-function paintSetup() {   // the picker's backdrop takes the sky and ground colours of the chosen map and weather
-  const t = TRACKS[chosenTrack], w = WEATHERS[wxId], sky = w.sky == null ? t.sky : w.sky;
-  const ground = wxId === 'snow' ? 0xf0f4f8 : t.ground;
-  const dim = wxId === 'night' ? 0.35 : 1;
-  $('setup').style.background = 'linear-gradient(rgba(10,15,30,' + (0.35 + (1 - dim)) + '), rgba(10,15,30,' + (0.35 + (1 - dim)) + ')), linear-gradient(' + hex(sky) + ' 0%, ' + hex(sky) + ' 52%, ' + hex(ground) + ' 52%, ' + hex(ground) + ' 100%)';
+const WX_TINT = { clear: '', sunset: 'rgba(255,140,60,.28)', night: 'rgba(5,10,40,.62)', rain: 'rgba(80,95,110,.4)', snow: 'rgba(240,246,255,.38)', fog: 'rgba(205,212,218,.6)' };
+function paintSetup() {   // backdrop: a picture of the chosen map if we have one, else its sky and ground colours, tinted for the weather
+  const t = TRACKS[chosenTrack], w = WEATHERS[wxId], shots = loadShots(), shot = shots[chosenTrack];
+  const dark = 'linear-gradient(rgba(10,15,30,.4), rgba(10,15,30,.4))', tint = WX_TINT[wxId] ? 'linear-gradient(' + WX_TINT[wxId] + ',' + WX_TINT[wxId] + '), ' : '';
+  if (shot) $('setup').style.background = dark + ', ' + tint + 'url(' + shot + ') center / cover no-repeat';
+  else {
+    const sky = w.sky == null ? t.sky : w.sky, ground = wxId === 'snow' ? 0xf0f4f8 : t.ground;
+    $('setup').style.background = dark + ', ' + tint + 'linear-gradient(' + hex(sky) + ' 0%, ' + hex(sky) + ' 52%, ' + hex(ground) + ' 52%, ' + hex(ground) + ' 100%)';
+  }
+  const missing = TRACKS.filter((_, i) => !shots[i]).length;
+  $('shotHint').textContent = missing ? 'Map pictures are saved on this device. Press "Refresh map pictures" once (about 10 seconds) to fill them in.' : '';
 }
 function openSetup(mode) {
   initAudio(); setupMode = mode; chosenTrack = TRACK_ID;
@@ -1157,6 +1188,7 @@ function openSetup(mode) {
 function launch(mode) {
   if (mode === 'host') startHost(); else { startGame(); startRace([]); }
 }
+$('tourBtn').onclick = () => { location.search = '?track=0&tour=1&wx=' + wxId; };
 $('setupBack').onclick = () => { $('setup').style.display = 'none'; menu.style.display = 'flex'; };
 $('setupGo').onclick = () => {
   initAudio();
@@ -1256,6 +1288,8 @@ function weatherTick(dt) {
   }
 }
 try { const sv = localStorage.getItem('lprw'); setWeather(WEATHERS[sv] ? sv : 'clear'); } catch (e) { setWeather('clear'); }
+
+if (TOUR) setWeather('clear');
 
 /* ---------- minimap ---------- */
 const mini = $('mini'), mctx = mini.getContext('2d');
@@ -1360,6 +1394,7 @@ function loop() {
   drawFx(sf, dt);
   if (++hudTick % 12 === 0 && started) { updatePos(); if (race.state === 'finished') showResults(); }
   renderer.render(scene, camera);
+  shotTick();
 }
 loop();
 </script>
