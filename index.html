@@ -27,7 +27,12 @@
   #mini { position: fixed; top: 128px; left: 16px; width: 150px; height: 150px; background: rgba(0,0,0,.35); border-radius: 12px; pointer-events: none; }
   #roomBtn { cursor: pointer; background: rgba(0,0,0,.35); padding: 6px 10px; border-radius: 8px; display: none; }
   #toast { bottom: 90px; left: 0; right: 0; text-align: center; font-size: 16px; }
-  #menu { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(20,30,50,.72); text-align: center; padding: 20px; }
+  #menu, #setup { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(20,30,50,.72); text-align: center; padding: 20px; }
+  #setup h2 { margin: 0; font-size: clamp(24px, 5vw, 38px); letter-spacing: 2px; }
+  .card { width: 150px; padding: 8px; background: #3b4a63; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 14px; }
+  .card.on { background: #ff5a3c; }
+  .card canvas { background: rgba(0,0,0,.28); border-radius: 8px; }
+  .card small { opacity: .85; font-weight: 400; line-height: 1.25; }
   #menu h1 { margin: 0; font-size: clamp(32px, 8vw, 64px); letter-spacing: 3px; }
   #menu p { margin: 0; max-width: 460px; opacity: .85; }
   #menu small { opacity: .7; }
@@ -129,8 +134,6 @@ class RConn {
 <div id="menu">
   <h1>LOW POLY RACER</h1>
   <p>Race friends right in your browser. Cars bump into each other (a shove, not a wreck).</p>
-  <div class="row" id="tracks"></div>
-  <div class="row" id="weather"></div>
   <input id="name" maxlength="12" placeholder="Your name" autocomplete="off">
   <div class="row" id="swatches"></div>
   <button id="solo">Drive solo (3 laps)</button>
@@ -142,6 +145,14 @@ class RConn {
   <div id="status"></div>
   <small>W / ↑ gas &nbsp;·&nbsp; S / ↓ brake &nbsp;·&nbsp; A D / ← → steer &nbsp;·&nbsp; Space handbrake (drift) &nbsp;·&nbsp; R reset to track &nbsp;·&nbsp; M mute</small>
   <small id="ver"></small>
+</div>
+
+<div id="setup" style="display:none">
+  <h2 id="setupTitle">Choose your race</h2>
+  <div class="row" id="tracks"></div>
+  <div class="row" id="weather"></div>
+  <div class="row"><button id="setupBack" class="tr">Back</button><button id="setupGo">Go</button></div>
+  <small>Your best lap and best race on each map are saved on this device.</small>
 </div>
 
 <script type="module">
@@ -825,6 +836,7 @@ function update(dt) {
       const now = performance.now();
       lastLap = (now - lapStart) / 1000;
       bestLap = bestLap == null ? lastLap : Math.min(bestLap, lastLap);
+      if (race.state === 'racing') saveBest('lap', lastLap);
       lapStart = now; lapsDone++;
       if (race.state === 'racing' && lapsDone >= LAPS) finishRace(now);
     }
@@ -1026,6 +1038,7 @@ function raceTick() {
 function finishRace(now) {
   race.state = 'finished';
   race.finish = (now - race.goT) / 1000;
+  saveBest('race', race.finish);
   beep(660, 0.4);
   showResults();
 }
@@ -1068,7 +1081,7 @@ $('startBtn').onclick = () => hostStart();
 $('again').onclick = () => { if (net.peer && net.host) hostStart(); else startRace([]); };
 
 /* ---------- menu wiring ---------- */
-$('ver').textContent = 'build 16 Oct (a)';
+$('ver').textContent = 'build 16 Oct (b)';
 $('name').value = me.name;
 $('name').oninput = e => { me.name = (e.target.value || 'Player').slice(0, 12); savePrefs(); };
 const swEls = [];
@@ -1087,18 +1100,71 @@ HUES.forEach(h => {
   $('swatches').appendChild(b); swEls.push(b);
 });
 swEls.forEach((b, i) => b.className = 'sw' + (HUES[i] === me.hue ? ' on' : ''));
+/* ---------- map / weather picker, shown after Solo or Host ---------- */
+let chosenTrack = TRACK_ID, setupMode = 'solo';
+const BEST_KEY = 'lprb';
+const loadBest = () => { try { return JSON.parse(localStorage.getItem(BEST_KEY) || '{}') || {}; } catch (e) { return {}; } };
+function saveBest(kind, t) {   // kind: 'lap' or 'race'
+  if (!(t > 0)) return;
+  const b = loadBest(), k = TRACK_ID + kind;
+  if (b[k] == null || t < b[k]) { b[k] = t; try { localStorage.setItem(BEST_KEY, JSON.stringify(b)); } catch (e) {} }
+}
+function drawPreview(cv, pts) {
+  const P = new THREE.CatmullRomCurve3(pts.map(([x, z, y = 0]) => new THREE.Vector3(x, y, z)), true, 'centripetal').getPoints(160);
+  let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (const p of P) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+  const pad = 12, sc = Math.min((cv.width - pad * 2) / (x1 - x0), (cv.height - pad * 2) / (z1 - z0));
+  const ox = (cv.width - (x1 - x0) * sc) / 2, oz = (cv.height - (z1 - z0) * sc) / 2;
+  const xy = p => [ox + (p.x - x0) * sc, oz + (p.z - z0) * sc];
+  const c = cv.getContext('2d'); c.lineJoin = 'round'; c.lineCap = 'round';
+  c.beginPath(); P.forEach((p, i) => { const [x, y] = xy(p); i ? c.lineTo(x, y) : c.moveTo(x, y); }); c.closePath();
+  c.strokeStyle = 'rgba(255,255,255,.95)'; c.lineWidth = 7; c.stroke();
+  c.strokeStyle = '#3a3a42'; c.lineWidth = 4; c.stroke();
+  const [sx, sy] = xy(P[0]); c.fillStyle = '#ffd37a'; c.beginPath(); c.arc(sx, sy, 4, 0, Math.PI * 2); c.fill();
+}
+const cardEls = [];
 TRACKS.forEach((t, i) => {
-  const b = document.createElement('button');
-  b.textContent = t.name; b.className = 'tr' + (i === TRACK_ID ? ' on' : '');
-  b.onclick = () => { if (i !== TRACK_ID) location.search = '?track=' + i; };   // reload with that track
-  $('tracks').appendChild(b);
+  const b = document.createElement('button'); b.className = 'card';
+  const cv = document.createElement('canvas'); cv.width = 130; cv.height = 90; drawPreview(cv, t.pts);
+  const nm = document.createElement('span'); nm.textContent = t.name;
+  const bt = document.createElement('small');
+  b.append(cv, nm, bt);
+  b.onclick = () => { chosenTrack = i; refreshCards(); };
+  $('tracks').appendChild(b); cardEls.push({ b, bt });
 });
-$('solo').onclick = () => { initAudio(); startGame(); startRace([]); };
-$('host').onclick = () => { initAudio(); startHost(); };
+function refreshCards() {
+  const best = loadBest();
+  cardEls.forEach(({ b, bt }, i) => {
+    b.className = 'card' + (i === chosenTrack ? ' on' : '');
+    bt.textContent = '';
+    const lap = best[i + 'lap'], race = best[i + 'race'];
+    bt.append('Best lap: ' + (lap ? fmt(lap) : '--'), document.createElement('br'), 'Best race: ' + (race ? fmt(race) : '--'));
+  });
+}
+function openSetup(mode) {
+  initAudio(); setupMode = mode; chosenTrack = TRACK_ID;
+  $('setupTitle').textContent = mode === 'host' ? 'Host a race' : 'Drive solo';
+  $('setupGo').textContent = mode === 'host' ? 'Create room' : 'Start (3 laps)';
+  refreshCards(); menu.style.display = 'none'; $('setup').style.display = 'flex';
+}
+function launch(mode) {
+  if (mode === 'host') startHost(); else { startGame(); startRace([]); }
+}
+$('setupBack').onclick = () => { $('setup').style.display = 'none'; menu.style.display = 'flex'; };
+$('setupGo').onclick = () => {
+  initAudio();
+  if (chosenTrack !== TRACK_ID) { location.search = '?track=' + chosenTrack + '&auto=' + setupMode; return; }   // a new map means a reload
+  $('setup').style.display = 'none'; menu.style.display = 'flex'; launch(setupMode);
+};
+window.addEventListener('keydown', initAudio, { once: true });
+$('solo').onclick = () => openSetup('solo');
+$('host').onclick = () => openSetup('host');
 $('join').onclick = () => { initAudio(); joinRoom($('code').value); };
 $('code').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('code').value); });
 const roomParam = new URLSearchParams(location.search).get('room');
 if (roomParam) $('code').value = roomParam.toUpperCase().slice(0, 5);
+const autoMode = new URLSearchParams(location.search).get('auto');
+if (autoMode === 'solo' || autoMode === 'host') launch(autoMode);
 if (new URLSearchParams(location.search).get('join') === '1' && $('code').value.length === 5) joinRoom($('code').value);
 
 /* ---------- weather ---------- */
