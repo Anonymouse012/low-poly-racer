@@ -1081,7 +1081,7 @@ $('startBtn').onclick = () => hostStart();
 $('again').onclick = () => { if (net.peer && net.host) hostStart(); else startRace([]); };
 
 /* ---------- menu wiring ---------- */
-$('ver').textContent = 'build 16 Oct (c)';
+$('ver').textContent = 'build 16 Oct (d)';
 $('name').value = me.name;
 $('name').oninput = e => { me.name = (e.target.value || 'Player').slice(0, 12); savePrefs(); };
 const swEls = [];
@@ -1129,7 +1129,7 @@ TRACKS.forEach((t, i) => {
   const nm = document.createElement('span'); nm.textContent = t.name;
   const bt = document.createElement('small');
   b.append(cv, nm, bt);
-  b.onclick = () => { chosenTrack = i; refreshCards(); };
+  b.onclick = () => { if (i !== TRACK_ID) location.search = '?track=' + i + '&setup=' + setupMode; else { chosenTrack = i; refreshCards(); } };   // the map is built at load, so picking one reloads this screen on it
   $('tracks').appendChild(b); cardEls.push({ b, bt });
 });
 function refreshCards() {
@@ -1165,6 +1165,8 @@ const roomParam = new URLSearchParams(location.search).get('room');
 if (roomParam) $('code').value = roomParam.toUpperCase().slice(0, 5);
 const autoMode = new URLSearchParams(location.search).get('auto');
 if (autoMode === 'solo' || autoMode === 'host') launch(autoMode);
+const setupParam = new URLSearchParams(location.search).get('setup');
+if (setupParam === 'solo' || setupParam === 'host') openSetup(setupParam);
 if (new URLSearchParams(location.search).get('join') === '1' && $('code').value.length === 5) joinRoom($('code').value);
 
 /* ---------- weather ---------- */
