@@ -31,7 +31,7 @@
   #setup h2 { margin: 0; font-size: clamp(24px, 5vw, 38px); letter-spacing: 2px; }
   .card { width: 150px; padding: 8px; background: #3b4a63; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 14px; }
   .card.on { background: #ff5a3c; }
-  .card canvas { background: rgba(0,0,0,.28); border-radius: 8px; }
+  .card canvas { width: 130px; height: 90px; position: static; background: rgba(0,0,0,.28); border-radius: 8px; }
   .card small { opacity: .85; font-weight: 400; line-height: 1.25; }
   #menu h1 { margin: 0; font-size: clamp(32px, 8vw, 64px); letter-spacing: 3px; }
   #menu p { margin: 0; max-width: 460px; opacity: .85; }
@@ -1081,7 +1081,7 @@ $('startBtn').onclick = () => hostStart();
 $('again').onclick = () => { if (net.peer && net.host) hostStart(); else startRace([]); };
 
 /* ---------- menu wiring ---------- */
-$('ver').textContent = 'build 16 Oct (b)';
+$('ver').textContent = 'build 16 Oct (c)';
 $('name').value = me.name;
 $('name').oninput = e => { me.name = (e.target.value || 'Player').slice(0, 12); savePrefs(); };
 const swEls = [];
