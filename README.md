@@ -26,6 +26,10 @@ Raised road gets a concrete deck and pillars. Going uphill slows the car and dow
 
 To add a track, add an entry to the `TRACKS` list in `index.html`: a name, ground and sky colours, and a list of `[x, z, height]` points (height is optional). Where the track crosses itself, make the upper road at least 11 units higher. Keep the points on a closed loop, with a straight start section, corners no tighter than about 30 units, and at least 40 units between parts of the track.
 
+## Weather
+
+Pick **Clear, Sunset, Night, Rain, Snow or Fog** on the menu (it's remembered on your device). Rain and snow cut grip, and snow settles: the longer it falls, the whiter the ground, road and trees get, and the slipperier the road becomes, so you can see your tyre marks in it. It melts away when you switch to another weather. Night turns your headlights on. In multiplayer the host picks the weather for everyone.
+
 ## Racing
 
 Pick a name and a car colour on the menu (they're remembered on your device). **Drive solo** starts a 3-lap time trial with a 3-2-1 countdown, and a results card shows your time at the end.

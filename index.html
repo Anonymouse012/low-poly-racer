@@ -130,6 +130,7 @@ class RConn {
   <h1>LOW POLY RACER</h1>
   <p>Race friends right in your browser. Cars bump into each other (a shove, not a wreck).</p>
   <div class="row" id="tracks"></div>
+  <div class="row" id="weather"></div>
   <input id="name" maxlength="12" placeholder="Your name" autocomplete="off">
   <div class="row" id="swatches"></div>
   <button id="solo">Drive solo (3 laps)</button>
@@ -163,11 +164,13 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x4a7a3a, 1.4));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x4a7a3a, 1.4);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff2cc, 2.2);
 sun.position.set(100, 200, 50);
 scene.add(sun);
 
+let snowRoad = null, treeTopMat = null;   // filled in below; the weather code fades them to white
 const ground = new THREE.Mesh(
   new THREE.PlaneGeometry(2400, 2400),
   new THREE.MeshStandardMaterial({ color: 0x5a9e4b, flatShading: true })
@@ -256,6 +259,9 @@ const tang = center.map((p, i) =>
   scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
     vertexColors: true, flatShading: true, side: THREE.DoubleSide
   })));
+  // a white copy of the road, lifted a little, whose opacity is the snow that has settled on it
+  snowRoad = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xf4f8fc, transparent: true, opacity: 0, depthWrite: false, flatShading: true, side: THREE.DoubleSide }));
+  snowRoad.position.y = 0.2; snowRoad.visible = false; scene.add(snowRoad);
 
   // start / finish line
   const cv = document.createElement('canvas'); cv.width = 16; cv.height = 2;
@@ -292,7 +298,7 @@ const tang = center.map((p, i) =>
   const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.4, 0.55, 2, 5),
     new THREE.MeshStandardMaterial({ color: 0x6b4a2b, flatShading: true }), spots.length);
   const tops = new THREE.InstancedMesh(new THREE.ConeGeometry(2.6, 7, 5),
-    new THREE.MeshStandardMaterial({ color: 0x2f7a3a, flatShading: true }), spots.length);
+    (treeTopMat = new THREE.MeshStandardMaterial({ color: 0x2f7a3a, flatShading: true })), spots.length);
   const m = new THREE.Matrix4();
   spots.forEach(([x, z, s], i) => {
     m.makeScale(s, s, s).setPosition(x, 1 * s - 0.3, z); trunks.setMatrixAt(i, m);
@@ -731,7 +737,7 @@ function update(dt) {
   const braking = !!down && spd0 > 6 && vf > -3;
   if (down) {
     if (vf > 0) {                                   // brakes act against the way the car is actually moving,
-      const k = Math.max(0, 1 - 50 * dt / Math.max(spd0, 0.01));   // so a slide keeps its angle while it slows
+      const k = Math.max(0, 1 - 50 * wxGrip() * dt / Math.max(spd0, 0.01));   // so a slide keeps its angle while it slows
       vf *= k; vl *= k;
     } else vf -= 22 * dt;                           // already stopped: reverse
   } else if (up) vf += 38 * Math.max(0, 1 - Math.pow(Math.max(vf, 0) / VMAX, 1.4)) * dt;
@@ -748,6 +754,7 @@ function update(dt) {
   if (hand) grip = Math.min(grip, 2.2);
   grip *= 1 - 0.08 * Math.min(1, spd / VMAX) * Math.abs(me.steer);
   if (off) grip *= 0.75;
+  grip *= wxGrip();                                 // rain and snow take grip away
   vl *= Math.exp(-grip * dt);
   me.slip = vl;
 
@@ -893,7 +900,7 @@ function startHost() {
     else { const m = netMsg(e); setStatus(m); toast(m); }
   });
   peer.on('connection', conn => {
-    conn.on('open', () => { net.conns[conn.peer] = conn; toast('A player joined'); });
+    conn.on('open', () => { net.conns[conn.peer] = conn; conn.send({ t: 'wx', w: wxId }); toast('A player joined'); });
     conn.on('data', d => { if (d && d.t === 's') net.states[conn.peer] = d.s; });
     conn.on('close', () => { delete net.conns[conn.peer]; delete net.states[conn.peer]; toast('A player left'); });
   });
@@ -920,6 +927,7 @@ function joinRoom(raw) {
     conn.on('data', d => {
       if (!d) return;
       if (d.t === 'w') net.snapshot = d.p;
+      else if (d.t === 'wx') setWeather(d.w, true);
       else if (d.t === 'go' && Array.isArray(d.ids)) startRace(d.ids);
     });
     conn.on('close', () => { net.snapshot = {}; toast('Disconnected from the host', 6000); });
@@ -1060,7 +1068,7 @@ $('startBtn').onclick = () => hostStart();
 $('again').onclick = () => { if (net.peer && net.host) hostStart(); else startRace([]); };
 
 /* ---------- menu wiring ---------- */
-$('ver').textContent = 'build 15 Oct (a)';
+$('ver').textContent = 'build 16 Oct (a)';
 $('name').value = me.name;
 $('name').oninput = e => { me.name = (e.target.value || 'Player').slice(0, 12); savePrefs(); };
 const swEls = [];
@@ -1092,6 +1100,86 @@ $('code').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('
 const roomParam = new URLSearchParams(location.search).get('room');
 if (roomParam) $('code').value = roomParam.toUpperCase().slice(0, 5);
 if (new URLSearchParams(location.search).get('join') === '1' && $('code').value.length === 5) joinRoom($('code').value);
+
+/* ---------- weather ---------- */
+const WEATHERS = {
+  clear:  { name: 'Clear',  sky: null,     fog: [220, 1150], hemi: 1.4, sun: 2.2, sunC: 0xfff2cc, gm: 1 },
+  sunset: { name: 'Sunset', sky: 0xf2a65a, fog: [160, 1000], hemi: 0.9, sun: 1.6, sunC: 0xff9a50, gm: 1 },
+  night:  { name: 'Night',  sky: 0x0a1230, fog: [60, 520],   hemi: 0.3, sun: 0.25, sunC: 0x7f9cff, gm: 1, lights: true },
+  rain:   { name: 'Rain',   sky: 0x6f7a86, fog: [40, 420],   hemi: 0.9, sun: 0.5, sunC: 0xcfd8e0, gm: 0.78, rain: true },
+  snow:   { name: 'Snow',   sky: 0xcfd8e2, fog: [30, 380],   hemi: 1.2, sun: 0.9, sunC: 0xffffff, gm: 0.85, snow: true },
+  fog:    { name: 'Fog',    sky: 0xb9c2c9, fog: [10, 240],   hemi: 1.1, sun: 0.8, sunC: 0xffffff, gm: 1 }
+};
+let wxId = 'clear', snowAmt = 0, lastSnow = -1;
+const BASE_SKY = TRACKS[TRACK_ID].sky, BASE_GROUND = TRACKS[TRACK_ID].ground;
+const wxBtns = [];
+const head = new THREE.SpotLight(0xfff0d0, 0, 120, 0.6, 0.6, 0);     // headlights, only lit at night
+scene.add(head, head.target);
+const BOX = 90, BOXY = 40, RN = 900, SN = 1400;
+const fill = n => { const a = new Float32Array(n * 3); for (let i = 0; i < n; i++) { a[i * 3] = (Math.random() - 0.5) * BOX; a[i * 3 + 1] = Math.random() * BOXY; a[i * 3 + 2] = (Math.random() - 0.5) * BOX; } return a; };
+const rainD = fill(RN), snowD = fill(SN);
+const rainGeo = new THREE.BufferGeometry(); rainGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(RN * 6), 3));
+const rainLines = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0xb8d0ee, transparent: true, opacity: 0.55 }));
+const snowGeo = new THREE.BufferGeometry(); snowGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SN * 3), 3));
+const snowPts = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5, transparent: true, opacity: 0.9, depthWrite: false }));
+for (const o of [rainLines, snowPts]) { o.frustumCulled = false; o.visible = false; scene.add(o); }
+const wrapTo = (v, c, S) => { let d = v - c; d = ((d + S / 2) % S + S) % S - S / 2; return c + d; };
+function wxGrip() { return wxId === 'snow' ? 0.85 - 0.3 * snowAmt : WEATHERS[wxId].gm; }   // settled snow is slipperier than falling snow
+function setWeather(id, fromNet) {
+  const w = WEATHERS[id]; if (!w) return;
+  wxId = id;
+  const sky = w.sky == null ? BASE_SKY : w.sky;
+  scene.background.setHex(sky); scene.fog.color.setHex(sky); scene.fog.near = w.fog[0]; scene.fog.far = w.fog[1];
+  hemi.intensity = w.hemi; sun.intensity = w.sun; sun.color.setHex(w.sunC);
+  head.intensity = w.lights ? 4 : 0;
+  rainLines.visible = !!w.rain; snowPts.visible = !!w.snow;
+  wxBtns.forEach(b => { b.className = 'tr' + (b.dataset.id === id ? ' on' : ''); });
+  try { localStorage.setItem('lprw', id); } catch (e) {}
+  if (!fromNet && net.peer && net.host) for (const c of Object.values(net.conns)) if (c.open) c.send({ t: 'wx', w: id });
+}
+Object.keys(WEATHERS).forEach(id => {
+  const b = document.createElement('button');
+  b.textContent = WEATHERS[id].name; b.dataset.id = id;
+  b.onclick = () => { if (net.peer && !net.host) return toast('The host picks the weather'); setWeather(id); };
+  $('weather').appendChild(b); wxBtns.push(b);
+});
+const SNOW_GROUND = new THREE.Color(0xf0f4f8), SNOW_TREE = new THREE.Color(0xdfe9ee), TREE_BASE = new THREE.Color(0x2f7a3a);
+function weatherTick(dt) {
+  const w = WEATHERS[wxId], cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+  if (w.rain) {
+    const p = rainGeo.attributes.position.array;
+    for (let i = 0; i < RN; i++) {
+      const x = rainD[i * 3] = wrapTo(rainD[i * 3], cx, BOX), z = rainD[i * 3 + 2] = wrapTo(rainD[i * 3 + 2], cz, BOX);
+      const y = rainD[i * 3 + 1] = wrapTo(rainD[i * 3 + 1] - 55 * dt, cy + 12, BOXY);
+      p[i * 6] = x; p[i * 6 + 1] = y; p[i * 6 + 2] = z; p[i * 6 + 3] = x; p[i * 6 + 4] = y + 1.6; p[i * 6 + 5] = z;
+    }
+    rainGeo.attributes.position.needsUpdate = true;
+  }
+  if (w.snow) {
+    const p = snowGeo.attributes.position.array;
+    for (let i = 0; i < SN; i++) {
+      p[i * 3] = snowD[i * 3] = wrapTo(snowD[i * 3] + 1.2 * dt, cx, BOX);
+      p[i * 3 + 1] = snowD[i * 3 + 1] = wrapTo(snowD[i * 3 + 1] - 4 * dt, cy + 12, BOXY);
+      p[i * 3 + 2] = snowD[i * 3 + 2] = wrapTo(snowD[i * 3 + 2], cz, BOX);
+    }
+    snowGeo.attributes.position.needsUpdate = true;
+  }
+  // snow settles while it falls (about 75 seconds to a full white-out) and melts away when it stops
+  snowAmt = w.snow ? Math.min(1, snowAmt + dt / 75) : Math.max(0, snowAmt - dt / 8);
+  if (Math.abs(snowAmt - lastSnow) > 0.004 || (snowAmt === 0) !== (lastSnow === 0)) {
+    lastSnow = snowAmt;
+    ground.material.color.setHex(BASE_GROUND).lerp(SNOW_GROUND, snowAmt);
+    if (treeTopMat) treeTopMat.color.copy(TREE_BASE).lerp(SNOW_TREE, snowAmt * 0.85);
+    if (snowRoad) { snowRoad.visible = snowAmt > 0.01; snowRoad.material.opacity = 0.92 * snowAmt; }
+  }
+  if (w.lights) {
+    const fx = Math.sin(me.th), fz = Math.cos(me.th);
+    head.position.set(me.x + fx * 1.5, me.y + 1.4, me.z + fz * 1.5);
+    head.target.position.set(me.x + fx * 35, me.y, me.z + fz * 35);
+    head.target.updateMatrixWorld();
+  }
+}
+try { const sv = localStorage.getItem('lprw'); setWeather(WEATHERS[sv] ? sv : 'clear'); } catch (e) { setWeather('clear'); }
 
 /* ---------- minimap ---------- */
 const mini = $('mini'), mctx = mini.getContext('2d');
@@ -1192,6 +1280,7 @@ function loop() {
 
   const fov = 66 + 26 * sf * sf;                       // widens with speed, which is most of what makes it feel fast
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * (1 - Math.exp(-6 * dt)); camera.updateProjectionMatrix(); }
+  weatherTick(dt);
   drawFx(sf, dt);
   if (++hudTick % 12 === 0 && started) { updatePos(); if (race.state === 'finished') showResults(); }
   renderer.render(scene, camera);
