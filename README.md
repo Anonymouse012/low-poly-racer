@@ -28,7 +28,7 @@ To add a track, add an entry to the `TRACKS` list in `index.html`: a name, groun
 
 ## Choosing a map and weather
 
-Click **Drive solo** or **Host a race** and a second screen lets you pick the map (each card shows the layout and your best lap and best 3-lap race on it, saved on your device) and the weather, then **Start** or **Create room**. Picking a different map reloads the page, then starts straight away. The backdrop is a picture of the chosen map. The game photographs each map once and keeps the pictures on your device (press **Refresh map pictures** to take them all, about 10 seconds). Joining a room skips this screen: the host's map and weather are used.
+Click **Drive solo** or **Host a race** and a second screen lets you pick the map (each card shows the layout and your best lap and best 3-lap race on it, saved on your device) and the weather, then **Start** or **Create room**. Picking a different map reloads the page, then starts straight away. Joining a room skips this screen: the host's map and weather are used.
 
 ## Weather
 
