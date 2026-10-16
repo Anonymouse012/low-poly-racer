@@ -1081,7 +1081,7 @@ $('startBtn').onclick = () => hostStart();
 $('again').onclick = () => { if (net.peer && net.host) hostStart(); else startRace([]); };
 
 /* ---------- menu wiring ---------- */
-$('ver').textContent = 'build 16 Oct (d)';
+$('ver').textContent = 'build 16 Oct (e)';
 $('name').value = me.name;
 $('name').oninput = e => { me.name = (e.target.value || 'Player').slice(0, 12); savePrefs(); };
 const swEls = [];
@@ -1129,7 +1129,7 @@ TRACKS.forEach((t, i) => {
   const nm = document.createElement('span'); nm.textContent = t.name;
   const bt = document.createElement('small');
   b.append(cv, nm, bt);
-  b.onclick = () => { if (i !== TRACK_ID) location.search = '?track=' + i + '&setup=' + setupMode; else { chosenTrack = i; refreshCards(); } };   // the map is built at load, so picking one reloads this screen on it
+  b.onclick = () => { chosenTrack = i; refreshCards(); paintSetup(); };
   $('tracks').appendChild(b); cardEls.push({ b, bt });
 });
 function refreshCards() {
@@ -1141,11 +1141,18 @@ function refreshCards() {
     bt.append('Best lap: ' + (lap ? fmt(lap) : '--'), document.createElement('br'), 'Best race: ' + (race ? fmt(race) : '--'));
   });
 }
+const hex = n => '#' + n.toString(16).padStart(6, '0');
+function paintSetup() {   // the picker's backdrop takes the sky and ground colours of the chosen map and weather
+  const t = TRACKS[chosenTrack], w = WEATHERS[wxId], sky = w.sky == null ? t.sky : w.sky;
+  const ground = wxId === 'snow' ? 0xf0f4f8 : t.ground;
+  const dim = wxId === 'night' ? 0.35 : 1;
+  $('setup').style.background = 'linear-gradient(rgba(10,15,30,' + (0.35 + (1 - dim)) + '), rgba(10,15,30,' + (0.35 + (1 - dim)) + ')), linear-gradient(' + hex(sky) + ' 0%, ' + hex(sky) + ' 52%, ' + hex(ground) + ' 52%, ' + hex(ground) + ' 100%)';
+}
 function openSetup(mode) {
   initAudio(); setupMode = mode; chosenTrack = TRACK_ID;
   $('setupTitle').textContent = mode === 'host' ? 'Host a race' : 'Drive solo';
   $('setupGo').textContent = mode === 'host' ? 'Create room' : 'Start (3 laps)';
-  refreshCards(); menu.style.display = 'none'; $('setup').style.display = 'flex';
+  refreshCards(); menu.style.display = 'none'; $('setup').style.display = 'flex'; paintSetup();
 }
 function launch(mode) {
   if (mode === 'host') startHost(); else { startGame(); startRace([]); }
@@ -1203,6 +1210,7 @@ function setWeather(id, fromNet) {
   rainLines.visible = !!w.rain; snowPts.visible = !!w.snow;
   wxBtns.forEach(b => { b.className = 'tr' + (b.dataset.id === id ? ' on' : ''); });
   try { localStorage.setItem('lprw', id); } catch (e) {}
+  if ($('setup').style.display === 'flex') paintSetup();
   if (!fromNet && net.peer && net.host) for (const c of Object.values(net.conns)) if (c.open) c.send({ t: 'wx', w: id });
 }
 Object.keys(WEATHERS).forEach(id => {
